@@ -33,6 +33,9 @@ curl -s localhost:8000/api/chat -H 'content-type: application/json' \
   -d '{"message":"What is the weather in Munich? Also read sample.txt"}'
 ```
 
+Errors from `/api/chat`: **401** = wrong key in `.env`; **429 insufficient_quota** = the
+OpenAI account has no credits (add billing or use the hackathon credits) — not a code bug.
+
 ## Entire setup (every teammate, once per machine)
 
 Official steps (from the EHL Notion + https://github.com/entireio/cli):
@@ -61,6 +64,8 @@ A correct push prints:
 If you commit by hand with no agent session, no checkpoint is created — that's expected,
 just make sure most of the work goes through an agent. Troubleshooting:
 `entire status`, `entire doctor`, `entire enable --force`.
+If a push prints the `[entire] ... done` line but then `remote: fatal error in commit_refs`
+/ `[remote rejected] main`, just run `git push` again (seen once on GitHub; the retry worked).
 Using a different agent? `entire agent add cursor` (etc.), commit the generated hook file.
 
 ## Project structure
