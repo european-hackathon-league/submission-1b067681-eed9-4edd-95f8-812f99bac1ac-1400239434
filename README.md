@@ -3,6 +3,7 @@
 Starter for the EHL Grand Finale (TUM.ai, 10–11 Oct 2026, agentic AI):
 FastAPI backend + OpenAI Agents SDK agent with example tools + a minimal chat UI.
 **Entire is set up in this repo — submissions without Entire are not accepted.**
+Entire status: enabled and verified (checkpoint pushed on first agent commit).
 
 ## Run locally (< 2 min)
 
