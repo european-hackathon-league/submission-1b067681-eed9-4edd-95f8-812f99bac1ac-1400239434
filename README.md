@@ -88,6 +88,11 @@ frontend/           Plain HTML/JS chat page (no build step)
 **API:** `POST /api/chat {"message": str, "history": [{"role","content"}]}` →
 `{"reply": str, "tool_calls": [str]}`.
 
+## How we work
+
+**[PLAYBOOK.md](PLAYBOOK.md)** (in Russian): our method for the weekend — Design Sprint × TRIZ,
+timeline, agent patterns, demo/pitch, submission checklist and fill-in templates.
+
 ## Who does what (3 people)
 
 | Person | Owns | Sat goal |
