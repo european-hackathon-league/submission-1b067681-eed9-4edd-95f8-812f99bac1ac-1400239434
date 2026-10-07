@@ -9,7 +9,12 @@ Entire status: enabled and verified (checkpoint pushed on first agent commit).
 
 Requirements: macOS/Linux, Python 3.11+, git. (Node not needed.)
 
+> **macOS: don't clone into `~/Desktop` or `~/Documents` if they sync to iCloud.**
+> iCloud evicts files it thinks are unused (including `.venv` and git hooks), and then
+> imports/commits hang while it re-downloads them. Use e.g. `~/Projects` instead.
+
 ```bash
+mkdir -p ~/Projects && cd ~/Projects
 git clone https://github.com/ksiox1337/ehl-finale-template.git
 cd ehl-finale-template
 make setup            # venv + deps + creates .env from .env.example
