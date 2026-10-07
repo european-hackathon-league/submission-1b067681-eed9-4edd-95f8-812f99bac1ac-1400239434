@@ -97,6 +97,7 @@ frontend/           Plain HTML/JS chat page (no build step)
 
 **[PLAYBOOK.md](PLAYBOOK.md)** (in Russian): our method for the weekend — Design Sprint × TRIZ,
 timeline, agent patterns, demo/pitch, submission checklist and fill-in templates.
+New to the team? Start with **[PLAYBOOK-SHORT.md](PLAYBOOK-SHORT.md)** (in Russian): setup, rules, method in one page.
 
 ## Who does what (3 people)
 
