@@ -64,6 +64,32 @@ class BrowserControls(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['status'], 'ambiguous')
         self.assertEqual(await self.page.locator('input').first.input_value(), '')
 
+    async def test_output_caption_is_not_a_toggle(self):
+        await self.page.set_content('<span role="group" onclick="window.clicked=true">'
+                                    '<output aria-label="Mode: manually confirmed">Manually confirmed</output></span>')
+        result = await self.page.evaluate(SET_JS, ['Manually confirmed','true'])
+        self.assertEqual(result['status'], 'read-only')
+        self.assertIsNone(await self.page.evaluate('window.clicked'))
+        self.assertIn('read-only output', await self.page.evaluate(EXTRACT_JS, {}))
+
+    async def test_duplicate_gates_are_filled_only_within_observed_scope(self):
+        from swarm.forms import scoped_evaluator, SLIDER_JS
+        gate = '<section><input type="range" aria-label="Unlock" value="0"><input type="checkbox" aria-label="Confirm"></section>'
+        await self.page.set_content(gate + gate)
+        await self.page.evaluate('window.__swarmGuard = {refs: [...document.querySelectorAll("section")]}')
+        evaluate = scoped_evaluator(self.page.evaluate, 1)
+        spot = await evaluate(SLIDER_JS, 'Unlock')
+        self.assertIsNotNone(spot)
+        report = await fill_fields(evaluate, [('Unlock','max'), ('Confirm','true')])
+        self.assertNotIn('FAILED', report)
+        self.assertEqual(await self.page.locator('[type=range]').nth(0).input_value(), '0')
+        self.assertFalse(await self.page.locator('[type=checkbox]').nth(0).is_checked())
+        self.assertEqual(await self.page.locator('[type=range]').nth(1).input_value(), '100')
+        self.assertTrue(await self.page.locator('[type=checkbox]').nth(1).is_checked())
+        await self.page.locator('section').nth(1).evaluate('(el) => el.remove()')
+        with self.assertRaises(Exception):
+            await evaluate(SET_JS, ['Unlock','max'])
+
 
 class InterruptedCollection(unittest.IsolatedAsyncioTestCase):
     async def test_browsing_steps_reuse_one_client(self):
@@ -143,6 +169,7 @@ class InterruptedCollection(unittest.IsolatedAsyncioTestCase):
                 await kwargs['on_record']({'kind':'mail.tan','data':{'tan':'753951'},'source':'mail','note':''})
                 return {'summary':'TAN recorded', 'done':True, 'steps':1}
             portal_calls += 1
+            self.assertIn('Discount percent: 0,00.', goal)
             if portal_calls == 1:
                 # A model's done=True alone must never end the signing workflow.
                 return {'summary':'Stopped without receipt', 'done':True, 'steps':1}

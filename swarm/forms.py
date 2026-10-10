@@ -44,9 +44,12 @@ SET_JS = r"""(args) => {
     return {status:'ambiguous', fields:choices.map(c => labelOf(c) || c.name)};
   const c = choices[0];
   if (!c) {
+    const outputs = docs.flatMap(d => [...d.querySelectorAll('output,[role=status],[role=note]')]).filter(visible);
+    if (w && outputs.some(e => norm(e.textContent) === w || norm(e.getAttribute('aria-label')).includes(w)))
+      return {status:'read-only', message:'This is output text, not an editable field or checkbox. Inspect the actual fields and validation errors.'};
     // no input with that label: a custom control (toggle/switch/checkbox built from elements, often in shadow DOM)
     // whose own text names it. "true"/"false": click it when its state differs; anything else: click it once.
-    const tsel = '[role=checkbox],[role=switch],[role=radio],[role=option],[role=button],[role=group],[aria-pressed],[aria-checked],[tabindex],label,button,summary';
+    const tsel = '[role=checkbox],[role=switch],[role=radio],[role=option],[role=button],[aria-pressed],[aria-checked],label,button';
     const textOf = e => norm(e.getAttribute('aria-label') || e.innerText || e.textContent);
     const toggles = docs.flatMap(d => [...d.querySelectorAll(tsel)]).filter(visible).filter(e => textOf(e));
     const near = toggles.filter(e => textOf(e) === w || textOf(e).startsWith(w) || (w && textOf(e).includes(w) && textOf(e).length < w.length + 60));
@@ -66,6 +69,7 @@ SET_JS = r"""(args) => {
     return {status: 'missing', fields: controls.map(c => labelOf(c).trim() || c.name).filter(Boolean).slice(0, 30)};
   }
   if (c.disabled) return {status: 'disabled', name: c.name};
+  if (c.readOnly) return {status: 'read-only', name: c.name};
   const v = norm(value);
   const num = s => { const n = parseFloat(String(s).replace(/[^0-9.,-]/g, '').replace(',', '.')); return isNaN(n) ? null : n; };
   // the prototype's setter: frameworks that track the value property (React, Lit) see the change; a plain
@@ -153,6 +157,15 @@ SLIDER_JS = r"""(label) => {
 READY_JS = "() => document.readyState"
 
 
+def scoped_evaluator(evaluate, item_id: int):
+    """Keep a guard decision inside the exact observed gate, including its frames/shadow roots."""
+    async def scoped(js, *args):
+        root = (f"const root = window.__swarmGuard?.refs[{int(item_id)}]; "
+                "if (!root?.isConnected) throw new Error('Observed form disappeared'); const docs = [root];")
+        return await evaluate(js.replace("const docs = [document];", root, 1), *args)
+    return scoped
+
+
 def is_max(value: str) -> bool:
     return str(value).strip().lower() in ("max", "maximum", "100", "end", "ende", "rechts", "right")
 
@@ -191,6 +204,9 @@ async def fill_fields(evaluate, pairs: list[tuple[str, str]], apply_button: str 
         elif status == "no-option":
             failed = True
             lines.append(f"{field} = {value}: FAILED, no such option; available: {result.get('options')}")
+        elif status == "read-only":
+            failed = True
+            lines.append(f"{field}: read-only output, not a checkbox or editable input; remove it from the fill request and inspect numeric validation errors")
         elif status == "missing":
             failed = True
             lines.append(f"{field} = {value}: FAILED, field not found; fields: {result.get('fields')}")

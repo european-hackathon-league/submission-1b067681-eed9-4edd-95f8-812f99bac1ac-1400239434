@@ -44,6 +44,7 @@ EXTRACT_JS = r"""(opts) => {
       if (t === 'checkbox' || t === 'radio') v = el.checked ? '[x]' : '[ ]';
       push(` [${el.name || label || t || 'field'}: ${v}] `); return;
     }
+    if (tag === 'OUTPUT') { push(` [read-only output: ${el.textContent}] `); return; }
     if (tag === 'TIME' && el.getAttribute('datetime')) push(` [${el.getAttribute('datetime')}] `);
     if (role === 'tooltip') push(' (tooltip: ');
     if (tag === 'TD' || tag === 'TH') push(' | ');

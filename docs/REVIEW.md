@@ -31,3 +31,5 @@ With the local model proxy running, `uv run --no-sync python scripts/evaluate_na
 Sandbox run notes and logs stay under ignored `.swarm/runs/`; they must not be copied into this document or shipped.
 
 The second implementation batch also streams tender and specification extractions independently, reapplies late Q&A to original revision facts, reserves eight minutes for submission, and bounds connection establishment separately from generation time. Full-workflow acceptance must still be checked in a fresh sandbox run.
+
+Signing investigation found a read-only amount caption mistaken for a checkbox, alongside a discount rendered with a decimal point where the wizard required a decimal comma. The submitter now formats both monetary values and discount consistently, and the form helper identifies read-only outputs. Duplicate mailbox unlock gates are filled within the exact model-selected gate; the helper does not guess between identical labels. Repeated browser-state timeouts now end the browsing connection after two bounded attempts, allowing the caller to reattach to the existing tab. These fixes require a fresh full-workflow sandbox evaluation.

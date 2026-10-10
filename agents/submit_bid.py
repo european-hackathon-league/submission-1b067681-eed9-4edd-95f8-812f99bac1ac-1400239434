@@ -7,6 +7,8 @@ which runs a short browse on the mail browser (3) to read the newest TAN mail. R
 then every position without data is omitted ("partial submission"), the bid is still signed.
 """
 import time
+from decimal import Decimal
+from swarm.normalize import de_number
 import asyncio
 
 from pydantic import BaseModel, Field
@@ -84,7 +86,7 @@ class BidSubmitter(Agent):
             f"Bidder company: {facts.get('bidder_company')}; VAT id (USt-IdNr.): {facts.get('bidder_vat_id')}"
             f"{'; contact e-mail: ' + contact if contact else ''}.\n"
             f"Decision: {'main offer (bid)' if decision == 'bid' else 'no bid (declaration of non-participation)'}.\n"
-            f"Discount percent: {answer.get('discount_percent')}. Net total: {bid.get('total_display', '0,00')} EUR "
+            f"Discount percent: {de_number(Decimal(str(answer.get('discount_percent') or 0)))}. Net total: {bid.get('total_display', '0,00')} EUR "
             f"(enter numbers in German format exactly as given).\n"
             f"POSITIONS (form may ask in different order: always read which position it shows):\n"
             f"{bid_table(bid, ctx.board.get('tender') or {})}\n\n"
@@ -93,7 +95,9 @@ class BidSubmitter(Agent):
             "later steps -> get each step right before continuing. fill_form sets many fields of a step in one action: "
             "cascading selects -> pass apply_button (button applying the selection); set configuration first, then "
             "material, quantity, prices, lead time; then_click continue button. Unsure -> check step result with "
-            "read_page (selects may default to wrong option). Acknowledge tender documents, tick nothing the brief does "
+            "read_page (selects may default to wrong option). Fill actual editable controls only. Read-only outputs and "
+            "group labels are not checkboxes. If a form reports invalid format, inspect the entered number format first. "
+            "Do not repeatedly search for a nonexistent control. Acknowledge tender documents, tick nothing the brief does "
             "not ask for (e.g. own terms). Form wants signing TAN -> request it in portal, call get_signing_tan, enter "
             "returned TAN right away (TAN valid few minutes; new request invalidates old one). Review summary, confirm "
             "binding submission (accept browser dialog). done once portal confirms submission; report "

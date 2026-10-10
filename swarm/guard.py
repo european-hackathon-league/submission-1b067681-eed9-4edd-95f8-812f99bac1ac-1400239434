@@ -216,7 +216,7 @@ class PopupGuard:
     `evaluate(js, *args)` runs a JS arrow function in the agent's current page."""
 
     def __init__(self, ctx, author: str, careful: bool = False, fill=None):
-        """`fill(pairs, then_click)` sets a gate's fields (default: swarm.forms.fill_fields in the page)."""
+        """`fill(pairs, then_click, item_id)` sets fields inside the observed gate only."""
         self.ctx, self.author, self.careful = ctx, author, careful
         self._fill = fill
         self._fresh: dict = {}             # decisions that are not cached (fills copying a code): used once
@@ -224,11 +224,11 @@ class PopupGuard:
         self._tries: dict[str, int] = {}
         self.actions = 0
 
-    async def fill(self, evaluate, pairs: list[tuple[str, str]], then_click: str) -> str:
+    async def fill(self, evaluate, pairs: list[tuple[str, str]], then_click: str, item_id: int) -> str:
         if self._fill is not None:
-            return await self._fill(pairs, then_click)
-        from swarm.forms import fill_fields
-        return await fill_fields(evaluate, pairs, "", then_click)
+            return await self._fill(pairs, then_click, item_id)
+        from swarm.forms import fill_fields, scoped_evaluator
+        return await fill_fields(scoped_evaluator(evaluate, item_id), pairs, "", then_click)
 
     def _decide(self, site: str, items: list[dict]) -> dict[int, dict]:
         """Decisions for the scanned items that are known now (cached, or just classified for this guard). Unknown
@@ -308,7 +308,7 @@ class PopupGuard:
                     else:
                         pairs = [(str(f.get("field", "")), str(f.get("value", ""))) for f in decision.get("fields") or []
                                  if isinstance(f, dict)]
-                        result = await asyncio.wait_for(self.fill(evaluate, pairs, str(decision.get("then_click") or "")),
+                        result = await asyncio.wait_for(self.fill(evaluate, pairs, str(decision.get("then_click") or ""), item["id"]),
                                                         3 * EVAL_TIMEOUT_S)
                         label = decision.get("then_click") or "fields"
                 except Exception as error:      # the item went away meanwhile

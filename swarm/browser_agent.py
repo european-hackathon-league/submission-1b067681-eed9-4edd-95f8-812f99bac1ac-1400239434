@@ -100,7 +100,7 @@ SYSTEM_EXTRA = """
 Rules:
 - Inspect cookie walls, surveys and popups; dismiss irrelevant notices, follow a link only when its observed purpose helps this task. Session expired or login form again -> log in again (credentials in task). Temporary error page -> retry a few times.
 - read_page saves DOM text including open shadow roots and readable frames. Check the returned text actually contains the requested facts. For unlabelled images/canvas use read_visual; for an observed PDF/ZIP link use read_document; for inaccessible frames navigate the observed frame URL. Use evidence_role to route facts found on a different site to tender/spec/erp/mail. `url`: open link + read in one step. `urls`: read several selected pages (all tabs of record, several messages) in one step. `next_page_link`: exact text of paging link -> every page of paged list read at once. `topic` (short label) when page holds facts analysts need -> saved as evidence.
-- fill_form fills whole form in one step (slider -> 'max', dragged with real mouse; checkbox -> 'true'); also custom toggles/switches without index (shadow DOM): field = their visible text, value 'true'.
+- fill_form fills whole form in one step (slider -> 'max', dragged with real mouse; checkbox -> 'true'); semantic checkbox/switch controls may live in shadow DOM. Read-only outputs, group labels and status text are not checkboxes; do not infer a missing input from descriptive text.
 - A guard closes cookie banners, surveys, notices, error pages and unlocks slider gates by itself: popup gone -> just continue. Notice dialogs: close with x/close; their "accept and continue" links lead to another page and lose your work. Download/log bars ("Öffnen") are decoys.
 - read_page shows list links as <url>: open records/messages with read_page(urls=[...]) instead of clicking through locked or paged lists.
 - Found reliable shortcut on this site (URL pattern opening list/record directly, which click opens record, how gate passes) -> share_tip once, so other agents skip the search.
@@ -406,6 +406,19 @@ class RobustSession(BrowserSession):
     _tab: Any = PrivateAttr(default=None)
     _focus_emulated: set = PrivateAttr(default_factory=set)
     _dialogs_handled: set = PrivateAttr(default_factory=set)
+    _state_timeouts: int = PrivateAttr(default=0)
+
+    async def get_browser_state_summary(self, include_screenshot: bool = True, cached: bool = False,
+                                        include_recent_events: bool = False):
+        try:
+            async with asyncio.timeout(30):
+                state = await super().get_browser_state_summary(
+                    include_screenshot=include_screenshot, cached=cached, include_recent_events=include_recent_events)
+            self._state_timeouts = 0
+            return state
+        except TimeoutError as error:
+            self._state_timeouts += 1
+            raise RuntimeError('Browser state capture timed out after 30s; retry observation before acting') from error
 
     async def connect(self, cdp_url: str | None = None):
         await super().connect(cdp_url)
@@ -523,10 +536,13 @@ async def _drag(browser_session: BrowserSession, x0: float, x1: float, y: float)
 
 
 async def fill_page(browser_session: BrowserSession, pairs: list[tuple[str, str]], apply_button: str = "",
-                    then_click: str = "") -> str:
+                    then_click: str = "", guard_item: int | None = None) -> str:
     """fill_fields, plus a real mouse drag for sliders set to their maximum (before the script sets them too)."""
     from swarm.forms import SLIDER_JS, fill_fields, is_max
     evaluate = lambda js, *a: _evaluate(browser_session, js, *a)  # noqa: E731
+    if guard_item is not None:
+        from swarm.forms import scoped_evaluator
+        evaluate = scoped_evaluator(evaluate, guard_item)
     dragged = []
     for field, value in pairs:
         if not is_max(value):
@@ -617,7 +633,7 @@ async def browse(ctx, goal: str, *, browser: int = 0, tab: Tab | None = None, si
                   llm_timeout=CALL_TIMEOUT_S + 2, step_timeout=120, directly_open_url=not reused,
                   extend_system_message=SYSTEM_EXTRA + (f"\n{hints}" if hints else ""), **prompt)
     guard = PopupGuard(ctx, author, careful=careful,
-                       fill=lambda pairs, then_click: fill_page(session, pairs, "", then_click))
+                       fill=lambda pairs, then_click, item_id: fill_page(session, pairs, "", then_click, item_id))
     evaluate = lambda js, *a: _evaluate(session, js, *a)  # noqa: E731
     guard_task: asyncio.Task | None = None
 
@@ -645,6 +661,9 @@ async def browse(ctx, goal: str, *, browser: int = 0, tab: Tab | None = None, si
             log.info("%s step %d: %s", author, agent.state.n_steps - 1, line)
         except Exception as error:
             log.debug("step line failed: %s", error)
+        if session._state_timeouts >= 2:
+            log.warning("%s: repeated browser-state timeouts; ending this connection so the caller can reattach", author)
+            agent.stop()
 
     try:
         async with asyncio.timeout(max(1, ctx.seconds_left() - reserve)):
@@ -663,7 +682,9 @@ async def browse(ctx, goal: str, *, browser: int = 0, tab: Tab | None = None, si
         finally:
             if browsing_llm._sdk_client is not None:
                 await browsing_llm._sdk_client.close()
-    return {"summary": history.final_result() or "", "records": records, "steps": len(history.history),
+    summary = history.final_result() or ("Browser state repeatedly timed out; reattach to the existing tab and inspect it"
+                                         if session._state_timeouts >= 2 else "")
+    return {"summary": summary, "records": records, "steps": len(history.history),
             "done": history.is_done() and history.is_successful() is True,
             "finished": history.is_done(), "guard_actions": guard.actions}
 
