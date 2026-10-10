@@ -3,10 +3,31 @@
   "checkpoint_id": "01M4KRMXANVNRQV1520X4G9CJQ",
   "strategy": "manual-commit",
   "branch": "tanreader-debug",
-  "checkpoints_count": 4,
+  "checkpoints_count": 109,
   "files_touched": [
+    "agents/analyze_discount.py",
+    "agents/analyze_materials.py",
+    "agents/analyze_quantities.py",
+    "agents/analyze_requirements.py",
+    "agents/compute_bid.py",
+    "agents/read_tan.py",
+    "agents/scrape_erp.py",
+    "agents/scrape_mail.py",
+    "agents/scrape_spec.py",
+    "agents/scrape_tender.py",
+    "agents/submit_bid.py",
+    "agents/verify_evidence.py",
     "sites.py",
-    "tests/test_read_tan.py"
+    "swarm/agent.py",
+    "swarm/browser_agent.py",
+    "swarm/facts.py",
+    "swarm/formpilot.py",
+    "swarm/llm.py",
+    "swarm/orchestrator.py",
+    "swarm/scraper.py",
+    "tests/test_pipeline.py",
+    "tests/test_read_tan.py",
+    "tests/test_sites.py"
   ],
   "sessions": [
     {
@@ -15,13 +36,20 @@
       "compact_transcript": "/0/transcript.jsonl",
       "content_hash": "/0/content_hash.txt",
       "prompt": "/0/prompt.txt"
+    },
+    {
+      "metadata": "/1/metadata.json",
+      "transcript": "/1/full.jsonl",
+      "compact_transcript": "/1/transcript.jsonl",
+      "content_hash": "/1/content_hash.txt",
+      "prompt": "/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 842,
-    "cache_creation_tokens": 1807379,
-    "cache_read_tokens": 168482030,
-    "output_tokens": 360686,
-    "api_call_count": 400
+    "input_tokens": 1828,
+    "cache_creation_tokens": 2334614,
+    "cache_read_tokens": 300863711,
+    "output_tokens": 640947,
+    "api_call_count": 826
   }
 }

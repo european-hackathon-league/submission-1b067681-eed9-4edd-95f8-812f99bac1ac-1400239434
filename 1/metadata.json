@@ -1,0 +1,1150 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "01M4KRMXANVNRQV1520X4G9CJQ",
+  "session_id": "6d67f91c-883f-425a-8870-7a7b8ec6fafe",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-10T20:39:09.451655Z",
+  "branch": "tanreader-debug",
+  "checkpoints_count": 105,
+  "save_step_count": 105,
+  "files_touched": [
+    "agents/analyze_discount.py",
+    "agents/analyze_materials.py",
+    "agents/analyze_quantities.py",
+    "agents/analyze_requirements.py",
+    "agents/compute_bid.py",
+    "agents/read_tan.py",
+    "agents/scrape_erp.py",
+    "agents/scrape_mail.py",
+    "agents/scrape_spec.py",
+    "agents/scrape_tender.py",
+    "agents/submit_bid.py",
+    "agents/verify_evidence.py",
+    "sites.py",
+    "swarm/agent.py",
+    "swarm/browser_agent.py",
+    "swarm/facts.py",
+    "swarm/formpilot.py",
+    "swarm/llm.py",
+    "swarm/orchestrator.py",
+    "swarm/scraper.py",
+    "tests/test_pipeline.py",
+    "tests/test_read_tan.py",
+    "tests/test_sites.py"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "turn_id": "c7d75d384e77",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 986,
+    "cache_creation_tokens": 527235,
+    "cache_read_tokens": 132381681,
+    "output_tokens": 280261,
+    "api_call_count": 426
+  },
+  "session_metrics": {
+    "turn_count": 105
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-10T20:39:09.273833Z",
+    "agent_lines": 0,
+    "agent_removed": 12,
+    "human_added": 21700,
+    "human_modified": 119,
+    "human_removed": 0,
+    "total_committed": 21700,
+    "total_lines_changed": 21831,
+    "agent_percentage": 0.05496770647244744,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 33,
+      "user_lines_removed": 14,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "sites.py": 24,
+        "tests/test_read_tan.py": 9
+      },
+      "user_removed_per_file": {
+        "sites.py": 11,
+        "tests/test_read_tan.py": 3
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 41,
+      "agent_lines_removed": 20
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 41,
+      "agent_lines_removed": 20
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 41,
+      "agent_lines_removed": 20
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 41,
+      "agent_lines_removed": 20
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 41,
+      "agent_lines_removed": 20
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 41,
+      "agent_lines_removed": 20
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 41,
+      "agent_lines_removed": 20
+    },
+    {
+      "checkpoint_number": 9,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 41,
+      "agent_lines_removed": 20
+    },
+    {
+      "checkpoint_number": 10,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 41,
+      "agent_lines_removed": 20
+    },
+    {
+      "checkpoint_number": 11,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 41,
+      "agent_lines_removed": 20
+    },
+    {
+      "checkpoint_number": 12,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 41,
+      "agent_lines_removed": 20
+    },
+    {
+      "checkpoint_number": 13,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 41,
+      "agent_lines_removed": 20
+    },
+    {
+      "checkpoint_number": 14,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 95,
+      "agent_lines_removed": 20
+    },
+    {
+      "checkpoint_number": 15,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 95,
+      "agent_lines_removed": 20
+    },
+    {
+      "checkpoint_number": 16,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 95,
+      "agent_lines_removed": 20
+    },
+    {
+      "checkpoint_number": 17,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 95,
+      "agent_lines_removed": 20
+    },
+    {
+      "checkpoint_number": 18,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 95,
+      "agent_lines_removed": 20
+    },
+    {
+      "checkpoint_number": 19,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 95,
+      "agent_lines_removed": 20
+    },
+    {
+      "checkpoint_number": 20,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 95,
+      "agent_lines_removed": 20
+    },
+    {
+      "checkpoint_number": 21,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 95,
+      "agent_lines_removed": 20
+    },
+    {
+      "checkpoint_number": 22,
+      "user_lines_added": 3,
+      "user_lines_removed": 2,
+      "agent_lines_added": 95,
+      "agent_lines_removed": 20,
+      "user_added_per_file": {
+        "agents/read_tan.py": 3
+      },
+      "user_removed_per_file": {
+        "agents/read_tan.py": 2
+      }
+    },
+    {
+      "checkpoint_number": 23,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 98,
+      "agent_lines_removed": 22
+    },
+    {
+      "checkpoint_number": 24,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 98,
+      "agent_lines_removed": 22
+    },
+    {
+      "checkpoint_number": 25,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 98,
+      "agent_lines_removed": 22
+    },
+    {
+      "checkpoint_number": 26,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 98,
+      "agent_lines_removed": 22
+    },
+    {
+      "checkpoint_number": 27,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 98,
+      "agent_lines_removed": 22
+    },
+    {
+      "checkpoint_number": 28,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 98,
+      "agent_lines_removed": 22
+    },
+    {
+      "checkpoint_number": 29,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 98,
+      "agent_lines_removed": 22
+    },
+    {
+      "checkpoint_number": 30,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 98,
+      "agent_lines_removed": 22
+    },
+    {
+      "checkpoint_number": 31,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 98,
+      "agent_lines_removed": 22
+    },
+    {
+      "checkpoint_number": 32,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 98,
+      "agent_lines_removed": 22
+    },
+    {
+      "checkpoint_number": 33,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 98,
+      "agent_lines_removed": 22
+    },
+    {
+      "checkpoint_number": 34,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 280,
+      "agent_lines_removed": 42
+    },
+    {
+      "checkpoint_number": 35,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 280,
+      "agent_lines_removed": 42
+    },
+    {
+      "checkpoint_number": 36,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 282,
+      "agent_lines_removed": 42
+    },
+    {
+      "checkpoint_number": 37,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 282,
+      "agent_lines_removed": 42
+    },
+    {
+      "checkpoint_number": 38,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 282,
+      "agent_lines_removed": 42
+    },
+    {
+      "checkpoint_number": 39,
+      "user_lines_added": 932,
+      "user_lines_removed": 46,
+      "agent_lines_added": 282,
+      "agent_lines_removed": 42,
+      "user_added_per_file": {
+        "agents/analyze_discount.py": 109,
+        "agents/analyze_materials.py": 69,
+        "agents/analyze_quantities.py": 73,
+        "agents/analyze_requirements.py": 86,
+        "agents/compute_bid.py": 188,
+        "agents/read_tan.py": 11,
+        "agents/scrape_erp.py": 13,
+        "agents/scrape_mail.py": 10,
+        "agents/scrape_spec.py": 8,
+        "agents/scrape_tender.py": 9,
+        "agents/verify_evidence.py": 43,
+        "swarm/browser_agent.py": 11,
+        "swarm/facts.py": 127,
+        "swarm/scraper.py": 4,
+        "tests/test_pipeline.py": 171
+      },
+      "user_removed_per_file": {
+        "agents/analyze_discount.py": 3,
+        "agents/analyze_materials.py": 3,
+        "agents/analyze_quantities.py": 5,
+        "agents/analyze_requirements.py": 3,
+        "agents/compute_bid.py": 3,
+        "agents/read_tan.py": 5,
+        "agents/scrape_erp.py": 6,
+        "agents/scrape_mail.py": 3,
+        "agents/scrape_spec.py": 3,
+        "agents/scrape_tender.py": 4,
+        "agents/verify_evidence.py": 3,
+        "swarm/browser_agent.py": 4,
+        "swarm/scraper.py": 1
+      }
+    },
+    {
+      "checkpoint_number": 40,
+      "user_lines_added": 298,
+      "user_lines_removed": 0,
+      "agent_lines_added": 919,
+      "agent_lines_removed": 88,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 171
+      }
+    },
+    {
+      "checkpoint_number": 41,
+      "user_lines_added": 298,
+      "user_lines_removed": 0,
+      "agent_lines_added": 919,
+      "agent_lines_removed": 88,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 171
+      }
+    },
+    {
+      "checkpoint_number": 42,
+      "user_lines_added": 298,
+      "user_lines_removed": 0,
+      "agent_lines_added": 919,
+      "agent_lines_removed": 88,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 171
+      }
+    },
+    {
+      "checkpoint_number": 43,
+      "user_lines_added": 298,
+      "user_lines_removed": 0,
+      "agent_lines_added": 919,
+      "agent_lines_removed": 88,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 171
+      }
+    },
+    {
+      "checkpoint_number": 44,
+      "user_lines_added": 298,
+      "user_lines_removed": 0,
+      "agent_lines_added": 919,
+      "agent_lines_removed": 88,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 171
+      }
+    },
+    {
+      "checkpoint_number": 45,
+      "user_lines_added": 298,
+      "user_lines_removed": 0,
+      "agent_lines_added": 919,
+      "agent_lines_removed": 88,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 171
+      }
+    },
+    {
+      "checkpoint_number": 46,
+      "user_lines_added": 363,
+      "user_lines_removed": 2,
+      "agent_lines_added": 937,
+      "agent_lines_removed": 89,
+      "user_added_per_file": {
+        "swarm/browser_agent.py": 22,
+        "swarm/facts.py": 127,
+        "swarm/orchestrator.py": 42,
+        "swarm/scraper.py": 1,
+        "tests/test_pipeline.py": 171
+      },
+      "user_removed_per_file": {
+        "swarm/browser_agent.py": 2
+      }
+    },
+    {
+      "checkpoint_number": 47,
+      "user_lines_added": 298,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1011,
+      "agent_lines_removed": 91,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 171
+      }
+    },
+    {
+      "checkpoint_number": 48,
+      "user_lines_added": 298,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1011,
+      "agent_lines_removed": 91,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 171
+      }
+    },
+    {
+      "checkpoint_number": 49,
+      "user_lines_added": 298,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1011,
+      "agent_lines_removed": 91,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 171
+      }
+    },
+    {
+      "checkpoint_number": 50,
+      "user_lines_added": 311,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1012,
+      "agent_lines_removed": 91,
+      "user_added_per_file": {
+        "agents/analyze_discount.py": 1,
+        "agents/analyze_materials.py": 1,
+        "agents/analyze_quantities.py": 2,
+        "agents/analyze_requirements.py": 2,
+        "agents/compute_bid.py": 1,
+        "agents/verify_evidence.py": 1,
+        "swarm/agent.py": 2,
+        "swarm/facts.py": 127,
+        "swarm/orchestrator.py": 3,
+        "tests/test_pipeline.py": 171
+      }
+    },
+    {
+      "checkpoint_number": 51,
+      "user_lines_added": 298,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1025,
+      "agent_lines_removed": 91,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 171
+      }
+    },
+    {
+      "checkpoint_number": 52,
+      "user_lines_added": 298,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1025,
+      "agent_lines_removed": 91,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 171
+      }
+    },
+    {
+      "checkpoint_number": 53,
+      "user_lines_added": 298,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1025,
+      "agent_lines_removed": 91,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 171
+      }
+    },
+    {
+      "checkpoint_number": 54,
+      "user_lines_added": 298,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1025,
+      "agent_lines_removed": 91,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 171
+      }
+    },
+    {
+      "checkpoint_number": 55,
+      "user_lines_added": 298,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1025,
+      "agent_lines_removed": 91,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 171
+      }
+    },
+    {
+      "checkpoint_number": 56,
+      "user_lines_added": 302,
+      "user_lines_removed": 1,
+      "agent_lines_added": 1025,
+      "agent_lines_removed": 91,
+      "user_added_per_file": {
+        "swarm/browser_agent.py": 4,
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 171
+      },
+      "user_removed_per_file": {
+        "swarm/browser_agent.py": 1
+      }
+    },
+    {
+      "checkpoint_number": 57,
+      "user_lines_added": 298,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1035,
+      "agent_lines_removed": 91,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 171
+      }
+    },
+    {
+      "checkpoint_number": 58,
+      "user_lines_added": 298,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1035,
+      "agent_lines_removed": 91,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 171
+      }
+    },
+    {
+      "checkpoint_number": 59,
+      "user_lines_added": 298,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1035,
+      "agent_lines_removed": 91,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 171
+      }
+    },
+    {
+      "checkpoint_number": 60,
+      "user_lines_added": 298,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1035,
+      "agent_lines_removed": 91,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 171
+      }
+    },
+    {
+      "checkpoint_number": 61,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1071,
+      "agent_lines_removed": 95,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 62,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1071,
+      "agent_lines_removed": 95,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 63,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1071,
+      "agent_lines_removed": 95,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 64,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1071,
+      "agent_lines_removed": 95,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 65,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1071,
+      "agent_lines_removed": 95,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 66,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1071,
+      "agent_lines_removed": 95,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 67,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1074,
+      "agent_lines_removed": 95,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 68,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1074,
+      "agent_lines_removed": 95,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 69,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1074,
+      "agent_lines_removed": 95,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 70,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1074,
+      "agent_lines_removed": 95,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 71,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1097,
+      "agent_lines_removed": 100,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 72,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1144,
+      "agent_lines_removed": 101,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 73,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1144,
+      "agent_lines_removed": 101,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 74,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1144,
+      "agent_lines_removed": 101,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 75,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1144,
+      "agent_lines_removed": 101,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 76,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1144,
+      "agent_lines_removed": 101,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 77,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1144,
+      "agent_lines_removed": 101,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 78,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1144,
+      "agent_lines_removed": 101,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 79,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1144,
+      "agent_lines_removed": 101,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 80,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1144,
+      "agent_lines_removed": 101,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 81,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1144,
+      "agent_lines_removed": 101,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 82,
+      "user_lines_added": 365,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1144,
+      "agent_lines_removed": 101,
+      "user_added_per_file": {
+        "agents/analyze_discount.py": 4,
+        "agents/analyze_materials.py": 2,
+        "agents/analyze_quantities.py": 3,
+        "agents/analyze_requirements.py": 2,
+        "swarm/facts.py": 127,
+        "swarm/formpilot.py": 22,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 83,
+      "user_lines_added": 345,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1177,
+      "agent_lines_removed": 101,
+      "user_added_per_file": {
+        "agents/scrape_erp.py": 6,
+        "swarm/facts.py": 127,
+        "swarm/scraper.py": 7,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 84,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1195,
+      "agent_lines_removed": 102,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 85,
+      "user_lines_added": 448,
+      "user_lines_removed": 43,
+      "agent_lines_added": 1195,
+      "agent_lines_removed": 102,
+      "user_added_per_file": {
+        "agents/read_tan.py": 1,
+        "sites.py": 69,
+        "swarm/browser_agent.py": 33,
+        "swarm/facts.py": 127,
+        "swarm/formpilot.py": 13,
+        "tests/test_pipeline.py": 205
+      },
+      "user_removed_per_file": {
+        "agents/read_tan.py": 1,
+        "sites.py": 42
+      }
+    },
+    {
+      "checkpoint_number": 86,
+      "user_lines_added": 380,
+      "user_lines_removed": 9,
+      "agent_lines_added": 1310,
+      "agent_lines_removed": 120,
+      "user_added_per_file": {
+        "swarm/browser_agent.py": 11,
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205,
+        "tests/test_sites.py": 37
+      },
+      "user_removed_per_file": {
+        "swarm/browser_agent.py": 2,
+        "tests/test_sites.py": 7
+      }
+    },
+    {
+      "checkpoint_number": 87,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1356,
+      "agent_lines_removed": 127,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 88,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1356,
+      "agent_lines_removed": 127,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 89,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1371,
+      "agent_lines_removed": 128,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 90,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1371,
+      "agent_lines_removed": 128,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 91,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1371,
+      "agent_lines_removed": 128,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 92,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1371,
+      "agent_lines_removed": 128,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 93,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1371,
+      "agent_lines_removed": 128,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 94,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1371,
+      "agent_lines_removed": 128,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 95,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1371,
+      "agent_lines_removed": 128,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 96,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1371,
+      "agent_lines_removed": 128,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 97,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1371,
+      "agent_lines_removed": 128,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 98,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1371,
+      "agent_lines_removed": 128,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 99,
+      "user_lines_added": 332,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1371,
+      "agent_lines_removed": 128,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 205
+      }
+    },
+    {
+      "checkpoint_number": 100,
+      "user_lines_added": 344,
+      "user_lines_removed": 2,
+      "agent_lines_added": 1371,
+      "agent_lines_removed": 128,
+      "user_added_per_file": {
+        "agents/analyze_quantities.py": 4,
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 213
+      },
+      "user_removed_per_file": {
+        "agents/analyze_quantities.py": 2
+      }
+    },
+    {
+      "checkpoint_number": 101,
+      "user_lines_added": 340,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1373,
+      "agent_lines_removed": 128,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 213
+      }
+    },
+    {
+      "checkpoint_number": 102,
+      "user_lines_added": 340,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1390,
+      "agent_lines_removed": 131,
+      "user_added_per_file": {
+        "swarm/facts.py": 127,
+        "tests/test_pipeline.py": 213
+      }
+    },
+    {
+      "checkpoint_number": 103,
+      "user_lines_added": 362,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1426,
+      "agent_lines_removed": 131,
+      "user_added_per_file": {
+        "swarm/facts.py": 138,
+        "tests/test_pipeline.py": 224
+      }
+    },
+    {
+      "checkpoint_number": 104,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 105,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 106,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1788,
+      "agent_lines_removed": 131
+    }
+  ]
+}
