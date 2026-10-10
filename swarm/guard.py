@@ -93,7 +93,8 @@ SCAN_JS = r"""() => {
     if (text.length < 3 && !buttons.length) return;
     refs.push(el); btnRefs.push(buttons);
     items.push({id: items.length, kind, text: text.slice(0, 1200),
-                buttons: buttons.map((b, i) => ({i, label: labelOf(b), away: away(b)})),
+                buttons: buttons.map((b, i) => ({i, label: labelOf(b), away: away(b),
+                                                  link: b.tagName === 'A' && !/^(#|javascript:|$)/i.test(b.getAttribute('href') || '')})),
                 fields});
   };
   outer.slice(0, 6).forEach(el => describe(el, 'overlay'));
@@ -203,6 +204,30 @@ def pick_button(decision: dict, item: dict) -> int | None:
     return index
 
 
+# Every access check on the page, without labels: each slider not yet at its maximum goes to the maximum (input and
+# change events, as dragging does), and the first checkbox after it in document order (its confirmation box) is
+# ticked. Pages carry several identical checks (mail list and reading pane: same labels), which made label-based
+# filling ambiguous; same logic as sites._unlock (Playwright), tested there.
+UNLOCK_ALL_JS = """() => {
+  const all = [...document.querySelectorAll('input[type=range], input[type=checkbox]')];
+  let handled = 0;
+  all.forEach((c, i) => {
+    if (c.type !== 'range' || c.disabled || !(c.offsetWidth || c.offsetHeight)) return;
+    const max = c.max || '100';
+    if (c.value !== max) {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+      set.call(c, max);
+      c.dispatchEvent(new Event('input', {bubbles: true}));
+      c.dispatchEvent(new Event('change', {bubbles: true}));
+    }
+    const box = all.slice(i + 1).find(x => x.type === 'checkbox');
+    if (box && !box.checked) box.click();
+    handled++;
+  });
+  return handled;
+}"""
+
+
 def safe_then_click(decision: dict, item: dict) -> str:
     """The confirm button to press after filling a gate, unless it leads to another page. A sandbox run: after passing
     the mail gate the guard pressed 'Original öffnen' (a link away, to a decoy page) on every sweep and the TAN lookup
@@ -211,7 +236,9 @@ def safe_then_click(decision: dict, item: dict) -> str:
     if not label:
         return ""
     for button in item.get("buttons") or []:
-        if " ".join(str(button.get("label") or "").split()).casefold() == label and button.get("away"):
+        if " ".join(str(button.get("label") or "").split()).casefold() == label and (button.get("away") or button.get("link")):
+            # a link is navigation, the agent's call: pressing the TAN mail's own link after every gate fill reloaded
+            # the mailbox and locked it again (run_2746dd8a30f278e2, no TAN in 5 attempts)
             return ""
     return str(decision.get("then_click"))
 
@@ -325,6 +352,8 @@ class PopupGuard:
                     else:
                         pairs = [(str(f.get("field", "")), str(f.get("value", ""))) for f in decision.get("fields") or []
                                  if isinstance(f, dict)]
+                        if decision.get("kind") == "gate":
+                            await asyncio.wait_for(evaluate(UNLOCK_ALL_JS), EVAL_TIMEOUT_S)
                         then_click = safe_then_click(decision, item)
                         result = await asyncio.wait_for(self.fill(evaluate, pairs, then_click, item["id"]),
                                                         3 * EVAL_TIMEOUT_S)
