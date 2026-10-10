@@ -97,8 +97,10 @@ SCAN_JS = r"""() => {
   outer.slice(0, 6).forEach(el => describe(el, 'overlay'));
   // inline access gates (a slider to drag to the end, mostly with a robot checkbox) that lock part of a page: described
   // by their controls and status only (the content they lock changes on every page); skipped once unlocked
+  let hasInlineGate = false;
   for (const d of docs) {
     for (const r of d.querySelectorAll('input[type=range], [role=slider]')) {
+      hasInlineGate = true;
       if (refs.some(o => o.contains(r))) continue;
       let box = r.parentElement;
       while (box && box.parentElement && !box.querySelector('input[type=checkbox], [role=checkbox]')) box = box.parentElement;
@@ -114,7 +116,7 @@ SCAN_JS = r"""() => {
       describe(box, 'gate', whole.length < 500 ? undefined : norm(parts.filter(Boolean).join(' | ')));
     }
   }
-  if (!items.length && document.body) {
+  if (!items.length && !hasInlineGate && document.body) {
     // a short page (error page with a retry link, notice page): its whole text, shadow roots included, is short
     let size = (document.body.innerText || '').length;
     for (const d of docs.slice(1)) size += ((d.host ? d : d.body || d).textContent || '').length;

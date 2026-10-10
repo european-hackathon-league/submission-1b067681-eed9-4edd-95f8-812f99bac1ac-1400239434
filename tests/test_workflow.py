@@ -90,8 +90,39 @@ class BrowserControls(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(Exception):
             await evaluate(SET_JS, ['Unlock','max'])
 
+    async def test_unlocked_inline_gates_do_not_reclassify_the_entire_mailbox(self):
+        from swarm.guard import SCAN_JS
+        await self.page.set_content('<section><label>Unlock<input type="range" value="100"></label>'
+                                    '<label><input type="checkbox" checked>Confirm</label>'
+                                    '<a href="/message">Read message</a></section>')
+        scan = await self.page.evaluate(SCAN_JS)
+        self.assertEqual(scan['items'], [])
+
 
 class InterruptedCollection(unittest.IsolatedAsyncioTestCase):
+    async def test_tan_record_completes_lookup_without_an_extra_model_call(self):
+        from swarm import browser_agent as ba
+        ctx = Context(task={'brief':'', 'access':[]}, board=Blackboard(), llm=None, pool=None)
+        records = []
+        class Session:
+            async def get_current_page_url(self): return 'https://fixture.example/message'
+        async def emit(record): records.append(record)
+        async def text(session): return 'Your signing TAN is 123ABC'
+        tool = ba.build_tools(ctx, 'mail', 'test', emit, stop_on_record='mail.tan').registry.registry.actions['record'].function
+        with patch.object(ba, 'read_current_page', text):
+            result = await tool(params=ba.RecordParams(kind='mail.tan', data={'tan':'123ABC'}), browser_session=Session())
+        self.assertTrue(result.is_done)
+        self.assertTrue(result.success)
+        self.assertEqual(records[0]['data']['tan'], '123ABC')
+
+    async def test_known_site_role_does_not_wait_for_unrelated_role_discovery(self):
+        from swarm.sites import site_for
+        class LLM:
+            async def ask_json(self, *args, **kwargs): raise AssertionError('Known role needs no model call')
+        ctx = Context(task={'brief':'', 'access':[{'siteId':'portal'}]}, board=Blackboard(), llm=LLM(), pool=None)
+        ctx.board.results['sites'] = {'tender':'portal'}
+        self.assertEqual(await site_for(ctx, 'tender'), 'portal')
+
     async def test_pagination_saves_first_page_before_next_page_stalls(self):
         from swarm import browser_agent as ba
         ctx = Context(task={'brief':'', 'access':[]}, board=Blackboard(), llm=None, pool=None)

@@ -590,7 +590,8 @@ def _step_line(agent) -> str:
 async def browse(ctx, goal: str, *, browser: int = 0, tab: Tab | None = None, site_id: str = "", on_record=None,
                  max_steps: int = 40, hints: str = "", author: str = "browse", use_vision=False,
                  stop_reserve: float | None = None, extra_tools=None, max_actions_per_step: int = 4,
-                 flash: bool = True, careful: bool = False, dedupe_reads: bool = True) -> dict:
+                 flash: bool = True, careful: bool = False, dedupe_reads: bool = True,
+                 stop_on_record: str = "") -> dict:
     """Run a browser-use agent until done / max_steps / out of time. Returns {"summary", "records", "steps", "done"}.
 
     `tab`: the tab to work in (default: the main tab of `browser`). Screenshots are off by default
@@ -610,7 +611,7 @@ async def browse(ctx, goal: str, *, browser: int = 0, tab: Tab | None = None, si
         if on_record:
             await on_record(rec)
 
-    tools = build_tools(ctx, site_id, author, emit, dedupe_reads=dedupe_reads)
+    tools = build_tools(ctx, site_id, author, emit, dedupe_reads=dedupe_reads, stop_on_record=stop_on_record)
     if extra_tools:
         extra_tools(tools)
 
@@ -689,7 +690,7 @@ async def browse(ctx, goal: str, *, browser: int = 0, tab: Tab | None = None, si
             "finished": history.is_done(), "guard_actions": guard.actions}
 
 
-def build_tools(ctx, site_id: str, author: str, emit, dedupe_reads: bool = True) -> Tools:
+def build_tools(ctx, site_id: str, author: str, emit, dedupe_reads: bool = True, stop_on_record: str = "") -> Tools:
     """Our actions for the browsing model: record, read_page, fill_form, share_tip. `emit(rec)` receives records and
     pages."""
     tools = Tools(exclude_actions=list(EXCLUDED_ACTIONS))
@@ -783,7 +784,9 @@ def build_tools(ctx, site_id: str, author: str, emit, dedupe_reads: bool = True)
         data["_observed_text"] = await read_current_page(browser_session)
         await emit({"kind": params.kind, "data": data, "source": params.source or url, "note": params.note,
                     "site": site_id, "author": author})
-        return ActionResult(extracted_content=f"recorded {params.kind}")
+        finished = bool(stop_on_record and params.kind == stop_on_record)
+        return ActionResult(extracted_content=f"recorded {params.kind}", is_done=finished,
+                            success=True if finished else None)
 
     async def read_one(target: str | None, params: ReadParams, browser_session: BrowserSession) -> tuple[str, str, int]:
         if target:

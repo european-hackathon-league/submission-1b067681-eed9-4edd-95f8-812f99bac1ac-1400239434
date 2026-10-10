@@ -150,10 +150,10 @@ class BidSubmitter(Agent):
                            f"session started {started}). Open inbox (new TAN mails appear without searching), open NEWEST "
                            "signing-TAN message for this tender, read_page it, record kind 'mail.tan' with data "
                            "{\"tan\": \"...\", \"received\": \"...\", \"request\": \"...\"} copied exactly, then done "
-                           "stating the TAN.")
+                           "stating the TAN. Recording mail.tan completes this lookup immediately; record it once.")
                     out = await browse(ctx, job, browser=3, site_id=mail_site, on_record=keep, max_steps=12,
                                        author=f"{self.name}.tan", stop_reserve=FINAL_MARGIN_S,
-                                       dedupe_reads=False)       # a new TAN request may update the same message page
+                                       dedupe_reads=False, stop_on_record="mail.tan")
                     tans = [r["data"].get("tan") for r in found if r["kind"] != "page" and r["data"].get("tan")]
                     text = f"TAN: {tans[-1]}" if tans else f"No TAN recorded. Mail agent said: {out['summary'][:300]}"
                     return text

@@ -56,6 +56,9 @@ async def resolve_roles(ctx) -> dict:
 
 
 async def site_for(ctx, role: str) -> str:
+    known = (ctx.board.get("sites") or {}).get(role)
+    if known in ctx.site_ids and known not in ctx.shared.get("site_invalidations", {}).get(role, set()):
+        return known
     mapping = await resolve_roles(ctx)
     if role not in mapping:
         raise KeyError(f"no website found for role {role!r}: {mapping}")
