@@ -144,7 +144,7 @@ def sync(base: str = BASE, run_tests: bool = True) -> int:
     if git("status", "--porcelain", "--untracked-files=no"):
         print("Uncommitted changes: commit them first (sync never touches a dirty worktree).")
         return 2
-    git("fetch", "--quiet", "origin")
+    git("fetch", "--quiet", "origin", check=False)
     if not int(git("rev-list", "--count", f"HEAD..{base}")):
         print(f"Already up to date with {base}.")
         return 0
@@ -194,6 +194,7 @@ def main(argv=None) -> int:
     st.add_argument("--no-conflicts", action="store_true", help="skip the trial merges (faster)")
     sy = sub.add_parser("sync")
     sy.add_argument("--no-tests", action="store_true")
+    sy.add_argument("--base", default=BASE, help="what to merge in (default origin/main)")
     ig = sub.add_parser("integrate")
     ig.add_argument("branch")
     ig.add_argument("--into", default="integration/next")
@@ -207,7 +208,7 @@ def main(argv=None) -> int:
         print(json.dumps(report, indent=1)) if getattr(args, "json", False) else print_status(report)
         return 0
     if args.cmd == "sync":
-        return sync(run_tests=not args.no_tests)
+        return sync(base=args.base, run_tests=not args.no_tests)
     return integrate(args.branch, args.into, run_tests=not args.no_tests)
 
 
