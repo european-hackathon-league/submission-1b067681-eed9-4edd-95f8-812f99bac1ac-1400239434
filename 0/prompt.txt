@@ -1,0 +1,64 @@
+<pasted_content id="e1d7">
+Improve the current working agent so it produces a more complete, accurate bid and obtains confirmed submission by approximately minute 19 of the 20-minute run. Preserve the working baseline and existing improvements. Choose the implementation approaches yourself.
+
+Address these priorities:
+
+1. Make runtime delays explainable.
+   Current reporting shows steps and aggregate model usage, but does not clearly distinguish useful work from waiting, repeated work, recovery, and processing delays. Establish a timeline using authorized run logs and enough additional measurement to identify the largest delays.
+   Goal: Account for where the run’s time goes and compare time to first usable bid, complete positions, and accepted submission.
+2. Prevent one stalled browser task from disrupting other agents.
+   Recovery exists, but browser checks can close tabs belonging to active workers. Whether shared browser handling causes wider stalls still needs measurement. Improve recovery so it preserves completed work and does not interfere with healthy tasks.
+   Goal: A deliberately stalled task does not stop unrelated collection or submission; recovery resumes useful work without repeating the whole investigation.
+3. Reduce the time required to enter and sign the bid.
+   Submission currently reserves ten minutes—half the entire budget. This protects delivery but sharply limits evidence collection. Reduce unnecessary interactions, repeated inspection, and signing delays, then adjust the reserve using measured results.
+   Goal: Submit the same complete bid faster, with entered values verified and acceptance confirmed. Demonstrate that the recovered time improves evidence coverage.
+4. Remove unnecessary waits between dependent tasks.
+   The agent already shares partial discoveries, but follow-up investigations generally wait for the relevant site’s first pass to finish. Bid calculation also waits until collection ends. Improve coordination so actionable discoveries and missing dependencies receive attention earlier.
+   Goal: Produce a usable partial bid during collection and resolve important gaps while other investigations continue.
+5. Prioritize completed positions over broad exploration.
+   ERP work prioritizes searches and material records ahead of pricing and stock. With many candidates, this can delay finishing otherwise promising positions. Prioritize work according to its contribution to a correct, submit-ready answer.
+   Goal: Increase the number of fully supported positions at comparable elapsed times, without sacrificing material eligibility or shared pricing rules.
+6. Improve processing throughput without overloading the sandbox.
+   Some workers wait for extraction before continuing, and some analysis batches wait for slow siblings before taking new work. Additional concurrency may also increase browser contention. Improve the balance between browsing, interpretation, and available capacity.
+   Goal: Turn collected evidence into usable facts sooner. Compare concurrency settings and retain changes that improve useful output per minute under sandbox conditions.
+7. Make gap detection reflect what calculation actually needs.
+   A confirmed example reports no collection gaps despite a missing price unit that prevents pricing. Other checks establish that a topic exists without necessarily establishing that the required value is usable. Align investigation priorities with actual answer dependencies.
+   Goal: Every omitted position or estimated field identifies its unresolved dependencies and triggers a focused follow-up while time permits.
+8. Combine pricing evidence only when it belongs together.
+   The recent fragment-merging improvement can combine a dated condition with scales from a differently identified condition. This can turn incomplete evidence into an apparently valid but incorrect price. Strengthen evidence reconciliation and conflict handling.
+   Goal: Related fragments form a complete condition; conflicting or unrelated records remain distinguishable and trigger clarification. Validate multiple conditions, validity periods, and late-arriving evidence.
+9. Close the remaining commercial and delivery gaps.
+   Missing commercial inputs can still produce estimated prices, while unavailable delivery commitments can lead to fallback lead times. Discovering these problems only during final calculation leaves little opportunity to repair them. Check completeness and consistency throughout collection.
+   Goal: Clearly distinguish verified values, justified absence, and uncertainty. Correctly apply bonuses, shared charges, discounts, stock, and delivery commitments across all affected positions.
+10. Prove the integrated improvement under the real deadline.
+    Existing helper tests cannot establish complete workflow reliability, and the local test environment currently prevents two collaboration checks from passing. Restore reproducible validation and compare the improved agent with the working baseline.
+    Goal: Demonstrate repeated accepted submissions within the scored budget, including interrupted collection and slow-browser cases. Report coverage, correctness, duration, model usage, and remaining bottlenecks
+</pasted_content id="e1d7">
+
+---
+
+Run it against the real sandbox, no need for creating test data. Remove it from the context and if it works test it agaist sandbox in background. COntinue with the plan
+
+---
+
+In the meantime we wait, are all points from the plan improved? If not, commit the zwische-commit and continue working on the plan.
+
+---
+
+<task-notification>
+<task-id>bi1l1tlk8</task-id>
+<tool-use-id>toolu_01CAufwH23ukBSoKgF6xgEpc</tool-use-id>
+<output-file>C:\Users\crubs\AppData\Local\Temp\claude\C--Users-crubs-Desktop-tum-hackathon-ehl-finale-template\93afff97-474c-427d-8ca7-807396b12188\tasks\bi1l1tlk8.output</output-file>
+<status>completed</status>
+<summary>Background command "Follow the baseline run log into .swarm/runs" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bsgcevsf7</task-id>
+<tool-use-id>toolu_013Qv9TiNTbzRDgqSaJtYoyw</tool-use-id>
+<output-file>C:\Users\crubs\AppData\Local\Temp\claude\C--Users-crubs-Desktop-tum-hackathon-ehl-finale-template\93afff97-474c-427d-8ca7-807396b12188\tasks\bsgcevsf7.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for the improved run's submit phase, then show key lines" completed (exit code 0)</summary>
+</task-notification>
