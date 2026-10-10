@@ -25,3 +25,12 @@ PLAYBOOK-SHORT.md
 PLAYBOOK.md
 
 .claude/
+
+# Atira kit
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+*.tar.gz
+

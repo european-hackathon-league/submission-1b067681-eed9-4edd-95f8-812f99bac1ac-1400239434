@@ -1,8 +1,0 @@
-EHL Grand Finale - team notes (sample file for the read_local_file tool)
-
-Event: 10-11 October 2026, Science Congress Centre Munich (Garching)
-Challenge selection deadline: Saturday 13:00
-Submission deadline: Sunday 12:00
-Pitch: strict 6 minutes including questions
-
-Put your own data files (CSV, JSON, docs) in backend/data so the agent can read them.
