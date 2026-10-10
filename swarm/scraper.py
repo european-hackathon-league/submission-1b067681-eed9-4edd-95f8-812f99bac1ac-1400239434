@@ -18,6 +18,7 @@ from swarm.extract import brief_intro
 from swarm.sites import site_for
 
 ANALYSIS_RESERVE_S = 75     # scrapers stop browsing this long before collecting ends (analysts need the time)
+IDLE_STEPS = 10             # a collection browse that saved pages, then saves nothing for this many steps, ends
 
 
 class SiteScraper(Agent):
@@ -56,6 +57,7 @@ class SiteScraper(Agent):
         prompt = "\n\n".join([self.login_text(), self.task_text(), f"YOUR JOB:\n{job}"])
         # stop browsing early enough for the analysts to turn the last pages into results before collecting ends
         kwargs.setdefault("stop_extra", ANALYSIS_RESERVE_S)
+        kwargs.setdefault("idle_steps", IDLE_STEPS)
         out = await browse(self.ctx, prompt, browser=self.browser if browser is None else browser, site_id=self.site_id,
                            on_record=self.post, max_steps=max_steps or self.max_steps, hints=self.hints,
                            author=kwargs.pop("author", self.name), **kwargs)

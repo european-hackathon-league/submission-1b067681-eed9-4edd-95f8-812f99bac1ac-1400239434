@@ -22,7 +22,8 @@ FINAL_MARGIN_S = 40
 # decision, documents, TAN request/entry, summary, confirmation, receipt), steps per position, and the steps the
 # wizard warm-up (agents/submit_bid.WizardPrep) already did. Full-reasoning submitter steps are slower than the
 # flash steps measured during collection. TAN lookup runs next to the wizard and costs extra time only at the end.
-BASE_STEPS, STEPS_PER_POSITION, PREP_SAVES_STEPS = 12, 2.5, 4
+# run_7b060fa870cea9b6: an entered position took 3 steps (one 6: cascading selects), an omitted one 1 step
+BASE_STEPS, STEPS_PER_POSITION, PREP_SAVES_STEPS = 12, 3, 4
 FULL_REASONING_FACTOR, TAN_S, SAFETY_S = 1.5, 60, 45
 # Collection steps (logins, clicks) are much faster than the submitter's full-reasoning steps: run_7732ba545b50b3a5
 # signed 4 positions in 466 s, ~21 s per estimated step. A submitter step is never assumed faster than this.

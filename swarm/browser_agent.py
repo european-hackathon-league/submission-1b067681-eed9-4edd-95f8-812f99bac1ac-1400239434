@@ -792,7 +792,7 @@ async def browse(ctx, goal: str, *, browser: int = 0, tab: Tab | None = None, si
                  max_steps: int = 40, hints: str = "", author: str = "browse", use_vision=False,
                  stop_reserve: float | None = None, stop_extra: float = 0.0, extra_tools=None,
                  max_actions_per_step: int = 4, flash: bool = True, careful: bool = False, dedupe_reads: bool = True,
-                 stop_on_record: str = "") -> dict:
+                 stop_on_record: str = "", idle_steps: int | None = None) -> dict:
     """See `_browse`. Measured as one span; the agent context variable names `author` inside."""
     token = timeline.AGENT.set(author)
     started = timeline.now()
@@ -801,7 +801,7 @@ async def browse(ctx, goal: str, *, browser: int = 0, tab: Tab | None = None, si
                             max_steps=max_steps, hints=hints, author=author, use_vision=use_vision,
                             stop_reserve=stop_reserve, stop_extra=stop_extra, extra_tools=extra_tools,
                             max_actions_per_step=max_actions_per_step, flash=flash, careful=careful,
-                            dedupe_reads=dedupe_reads, stop_on_record=stop_on_record)
+                            dedupe_reads=dedupe_reads, stop_on_record=stop_on_record, idle_steps=idle_steps)
         if not out.get("done"):
             timeline.add("browse.failed", out.get("summary", "")[:60], started)
         return out
@@ -813,7 +813,7 @@ async def _browse(ctx, goal: str, *, browser: int = 0, tab: Tab | None = None, s
                   max_steps: int = 40, hints: str = "", author: str = "browse", use_vision=False,
                   stop_reserve: float | None = None, stop_extra: float = 0.0, extra_tools=None,
                   max_actions_per_step: int = 4, flash: bool = True, careful: bool = False,
-                  dedupe_reads: bool = True, stop_on_record: str = "") -> dict:
+                  dedupe_reads: bool = True, stop_on_record: str = "", idle_steps: int | None = None) -> dict:
     """Run a browser-use agent until done / max_steps / out of time. Returns {"summary", "records", "steps", "done"}.
 
     `tab`: the tab to work in (default: the main tab of `browser`). Screenshots are off by default
@@ -823,9 +823,11 @@ async def _browse(ctx, goal: str, *, browser: int = 0, tab: Tab | None = None, s
     `topic` reach `on_record` as {"kind": "page", "data": {...}}.
     A PopupGuard (swarm/guard.py) clears popups, notices and error pages next to the agent; `careful=True` limits it to
     noise without inputs (the bid submitter). `dedupe_reads`: read_page of a URL another agent already saved returns
-    the saved text instead of opening it again (off for mails that change, such as TANs).
+    the saved text instead of opening it again (off for mails that change, such as TANs). `idle_steps`: after the
+    first saved page/fact, stop once this many steps in a row saved nothing new (the caller resumes).
     """
     records: list[dict] = []
+    progress = {"saved_at": None, "idle_stop": False}     # step of the last saved page/fact
 
     def reserve() -> float:
         """Seconds-left mark at which this browse stops: fixed, or the live submission reserve plus `stop_extra`."""
@@ -835,9 +837,11 @@ async def _browse(ctx, goal: str, *, browser: int = 0, tab: Tab | None = None, s
 
     async def emit(rec: dict) -> None:
         records.append(rec)
+        progress["saved_at"] = len(step_started)
         if on_record:
             await on_record(rec)
 
+    step_started: list[float] = []
     tools = build_tools(ctx, site_id, author, emit, dedupe_reads=dedupe_reads, stop_on_record=stop_on_record)
     if extra_tools:
         extra_tools(tools)
@@ -865,7 +869,6 @@ async def _browse(ctx, goal: str, *, browser: int = 0, tab: Tab | None = None, s
                        fill=lambda pairs, then_click, item_id: fill_page(session, pairs, "", then_click, item_id))
     evaluate = lambda js, *a: _evaluate(session, js, *a)  # noqa: E731
     guard_task: asyncio.Task | None = None
-    step_started: list[float] = []
 
     async def before_step(_agent) -> None:
         nonlocal guard_task
@@ -898,6 +901,13 @@ async def _browse(ctx, goal: str, *, browser: int = 0, tab: Tab | None = None, s
             log.info("%s step %d: %s", author, agent.state.n_steps - 1, line)
         except Exception as error:
             log.debug("step line failed: %s", error)
+        if idle_steps and progress["saved_at"] is not None and len(step_started) - progress["saved_at"] >= idle_steps:
+            # it saved evidence, then went on without saving anything (run_7b060fa870cea9b6: 6 min on a decoy mail)
+            log.warning("%s: %d steps without new evidence; ending so the caller can continue from what is saved",
+                        author, idle_steps)
+            timeline.count("browse.idle_stops")
+            progress["idle_stop"] = True
+            agent.stop()
         if session._state_timeouts >= 2:
             log.warning("%s: repeated browser-state timeouts; ending this connection so the caller can reattach", author)
             timeline.count("browse.state_timeouts")
@@ -943,7 +953,8 @@ async def _browse(ctx, goal: str, *, browser: int = 0, tab: Tab | None = None, s
                 await browsing_llm._sdk_client.close()
     summary = history.final_result() or failure or (
         "Browser state repeatedly timed out; reattach to the existing tab and inspect it"
-        if session._state_timeouts >= 2 else "")
+        if session._state_timeouts >= 2 else
+        f"stopped after {idle_steps} steps without new evidence (decoy or dead end?)" if progress["idle_stop"] else "")
     return {"summary": summary, "records": records, "steps": len(history.history),
             "done": not failure and history.is_done() and history.is_successful() is True,
             "finished": history.is_done(), "guard_actions": guard.actions, "error": failure}

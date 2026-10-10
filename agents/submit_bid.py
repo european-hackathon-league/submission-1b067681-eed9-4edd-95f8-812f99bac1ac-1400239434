@@ -209,7 +209,8 @@ class BidSubmitter(Agent):
                     job = (f"Site (webmail): {mail['url']}\nLogin: username {mc.get('username')!r}, password "
                            f"{mc.get('password')!r}\n\nYOUR JOB: signing TAN for tender "
                            f"{answer.get('tender_reference')} just requested (at {params.requested_at or 'just now'}; "
-                           f"session started {started}). Open inbox (new TAN mails appear without searching), open NEWEST "
+                           f"session started {started}). Open inbox without any search filter (clear the search box if "
+                           "the list looks empty; new TAN mails appear without searching), open NEWEST "
                            "signing-TAN message for this tender, read_page it, record kind 'mail.tan' with data "
                            "{\"tan\": \"...\", \"received\": \"...\", \"request\": \"...\"} copied exactly, then done "
                            "stating the TAN. Recording mail.tan completes this lookup immediately; record it once.")
@@ -291,8 +292,9 @@ class BidSubmitter(Agent):
                 with timeline.span("submit.prep", "mailbox"):
                     out = await browse(ctx, f"Site (webmail): {mail['url']}\nLogin: username {mc.get('username')!r}, "
                                             f"password {mc.get('password')!r}\n\nYOUR JOB: log in if needed, accept the "
-                                            "cookie wall, close popups, pass any access gate, open the inbox. Open no "
-                                            "message, search nothing. Then done.",
+                                            "cookie wall, close popups, pass any access gate, open the inbox with NO "
+                                            "search filter (clear a search left in the search box, so new mails "
+                                            "show). Open no message. Then done.",
                                        browser=3, site_id=mail_site, max_steps=6, author=f"{self.name}.mailbox",
                                        stop_reserve=FINAL_MARGIN_S, dedupe_reads=False)
             if out.get("done"):
