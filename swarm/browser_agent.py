@@ -344,11 +344,61 @@ async def browser_responds(browser: int, timeout: float = 12) -> bool:
     return True
 
 
+TAB_PROBE_S = 8          # a page that cannot evaluate `1` within this long is hung
+
+
+async def close_hung_tabs(browser: int, keep: str | None = None) -> list[str]:
+    """Close the tabs of `browser` whose page no longer runs JavaScript. browser-use attaches to every tab when it
+    connects; one hung tab made each connect time out after 15 s, although the browser itself still answered (two
+    sandbox runs: the submitter failed 5 times that way). `keep` is never closed. Returns the closed target ids."""
+    async def probe(client) -> list[str]:
+        targets = (await client.send.Target.getTargets())["targetInfos"]
+        pages = [t for t in targets if t.get("type") == "page" and t["targetId"] != keep]
+
+        async def hung(target) -> bool:
+            try:
+                async with asyncio.timeout(TAB_PROBE_S):
+                    attached = await client.send.Target.attachToTarget(
+                        params={"targetId": target["targetId"], "flatten": True})
+                    await client.send.Runtime.evaluate(params={"expression": "1"}, session_id=attached["sessionId"])
+                    await client.send.Target.detachFromTarget(params={"sessionId": attached["sessionId"]})
+                return False
+            except Exception:  # noqa: BLE001 - timeout or a target that vanished: only a timeout counts as hung
+                return True
+
+        verdicts = await asyncio.gather(*(hung(t) for t in pages))
+        closed: list[str] = []
+        for target, is_hung in zip(pages, verdicts):
+            if is_hung:
+                try:
+                    await asyncio.wait_for(client.send.Target.closeTarget(params={"targetId": target["targetId"]}), 5)
+                    _OWNERS.pop(target["targetId"], None)
+                    closed.append(target["targetId"])
+                    log.warning("browser %d: closed a hung tab (%s)", browser, str(target.get("url"))[:80])
+                except Exception:  # noqa: BLE001
+                    continue
+        return closed
+
+    if not browsers.cdp_urls():
+        return []
+    try:
+        return await asyncio.wait_for(_with_cdp(browser, probe), TAB_PROBE_S + 15)
+    except Exception as error:  # noqa: BLE001
+        log.debug("hung-tab check on browser %d failed: %s", browser, error)
+        return []
+
+
 async def responsive_tab(tab: "Tab") -> "Tab":
     """The tab to work in: `tab` if its browser answers, else a new tab of the next browser that does. Any browser can
     open any site, so one dead browser must not take a whole role (or the signing) down with it."""
     urls = browsers.cdp_urls()
-    if not urls or await browser_responds(tab.browser):
+    if not urls:
+        return tab
+    if await browser_responds(tab.browser):
+        closed = await close_hung_tabs(tab.browser)
+        if tab.target_id and tab.target_id in closed:
+            log.warning("browser %d: this agent's tab was hung and closed; continuing in a new tab", tab.browser)
+            return Tab(tab.browser)
         return tab
     for step in range(1, len(urls)):
         other = (tab.browser + step) % len(urls)

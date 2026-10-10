@@ -11,6 +11,7 @@ Every message is read once:
    tabs (each logs in: this webmail keeps its login per tab). Messages already saved by another agent are not opened
    again (read_page returns the saved text). Then results["done.mail"].
 The signing TAN is NOT read here: the submitter asks for it when it signs (agents/submit_bid.py)."""
+import os
 import asyncio
 
 from agents.analyze_discount import covered_topics, refresh
@@ -19,7 +20,7 @@ from swarm import Phase, register  # noqa: F401
 from swarm.scraper import SiteScraper
 from swarm.sites import site_for
 
-TOPIC_TABS = 3
+TOPIC_TABS = int(os.environ.get("SWARM_MAIL_TABS", "2"))   # parallel mail topic tabs; was 3 (sandbox CPU)
 
 SEARCH_RULES = (
     "Mailbox search combines words with AND and shows limited hits. Look-alike references (same reference with "

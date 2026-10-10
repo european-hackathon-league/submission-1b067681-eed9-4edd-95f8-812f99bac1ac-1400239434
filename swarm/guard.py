@@ -14,6 +14,7 @@ agents of the run: a maintenance dialog that comes back on every page of a site 
 other tab clears it without one. Fill decisions are not cached (a displayed code changes every time). `careful=True`
 (the bid submitter) only allows clicks on noise without input fields: never fills, never touches a form.
 """
+import os
 import asyncio
 import json
 import logging
@@ -22,7 +23,8 @@ from urllib.parse import urlparse
 
 log = logging.getLogger("guard")
 
-GUARD_INTERVAL_S = 2.0
+GUARD_INTERVAL_S = float(os.environ.get("SWARM_GUARD_INTERVAL_S", "4"))   # was 2 s: one sweep per agent tab
+#   every 2 s added to the sandbox CPU load (see docs/INTEGRATION.md)
 MAX_ACTIONS_PER_ITEM = 4        # per browse: an item that keeps coming back after this many tries is left to the agent
 CLASSIFY_TIMEOUT_S = 45
 EVAL_TIMEOUT_S = 10            # a page script that does not answer (page frozen by a native dialog) is given up

@@ -15,6 +15,7 @@ passes the ERP's gates. Then the work runs as small jobs on up to ERP_TABS tabs 
 Small jobs finish inside their step budget (one big job per group used to run out of steps before prices and stock),
 and no step is spent on materials the list already rules out. results["done.erp"] is set when the queue is empty.
 """
+import os
 import asyncio
 import itertools
 
@@ -28,7 +29,8 @@ from swarm.scraper import SiteScraper
 from swarm.sites import site_for
 
 ANALYSIS_TIME_S = 60    # what the material matcher needs after the last ERP page
-ERP_TABS = 8             # parallel ERP jobs at most (main tab included)
+ERP_TABS = int(os.environ.get("SWARM_ERP_TABS", "4"))   # parallel ERP jobs (main tab included); was 8: the 4-vCPU
+#   sandbox stalled every browser at once (state capture timeouts), locally the same run did not
 
 HINTS = ("Adapt to the observed software; these are possible patterns, not requirements. ERP habits: SAP-style transaction codes (start page / menu lists transactions for material display, stock "
          "overview, price conditions); system notice or access gate after login (copy displayed number exactly - "
