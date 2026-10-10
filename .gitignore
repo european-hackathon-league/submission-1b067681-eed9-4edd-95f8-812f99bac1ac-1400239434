@@ -20,3 +20,8 @@ dist/
 
 # Entire: personal overrides stay local
 .entire/settings.local.json
+
+PLAYBOOK-SHORT.md
+PLAYBOOK.md
+
+.claude/
