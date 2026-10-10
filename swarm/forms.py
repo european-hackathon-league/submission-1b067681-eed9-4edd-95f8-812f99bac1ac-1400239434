@@ -21,7 +21,7 @@ _FIND = r"""
 """
 
 SET_JS = r"""(args) => {
-  const [want, value] = args;
+  const [want, value, verify] = args;
 """ + _FIND + r"""
   const labelOf = c => {
     let t = '';
@@ -37,8 +37,12 @@ SET_JS = r"""(args) => {
   const controls = docs.flatMap(d => [...d.querySelectorAll('input,select,textarea,[contenteditable=true]')])
     .filter(c => c.type !== 'hidden' && visible(c));
   const w = norm(want);
-  const c = controls.find(c => norm(c.name) === w) || controls.find(c => norm(labelOf(c)) === w)
-    || controls.find(c => norm(labelOf(c)).startsWith(w)) || controls.find(c => w && norm(labelOf(c)).includes(w));
+  const choices = [controls.filter(c => norm(c.name) === w), controls.filter(c => norm(labelOf(c)) === w),
+    controls.filter(c => w && norm(labelOf(c)).startsWith(w)), controls.filter(c => w && norm(labelOf(c)).includes(w))]
+    .find(cs => cs.length) || [];
+  if (choices.length > 1 && !choices.every(c => c.type === 'radio' && c.name === choices[0].name))
+    return {status:'ambiguous', fields:choices.map(c => labelOf(c) || c.name)};
+  const c = choices[0];
   if (!c) {
     // no input with that label: a custom control (toggle/switch/checkbox built from elements, often in shadow DOM)
     // whose own text names it. "true"/"false": click it when its state differs; anything else: click it once.
@@ -54,7 +58,7 @@ SET_JS = r"""(args) => {
         || /(^|\s)(on|active|checked|selected|is-checked)(\s|$)/i.test(typeof e.className === 'string' ? e.className : '');
       const bool = /^(true|1|yes|ja|x|on|checked|false|0|no|nein|off)$/i.test(String(value).trim());
       const want = /^(true|1|yes|ja|x|on|checked)$/i.test(String(value).trim());
-      if (!bool || isOn(t) !== want) t.click();
+      if (!verify && (!bool || isOn(t) !== want)) t.click();
       const readable = t.hasAttribute('aria-checked') || t.hasAttribute('aria-pressed') || !!t.querySelector('input[type=checkbox]');
       return {status: bool && readable && isOn(t) === want ? 'ok' : 'unverified', name: textOf(t).slice(0, 60),
               set: 'clicked; inspect updated state before continuing'};
@@ -77,24 +81,30 @@ SET_JS = r"""(args) => {
     const o = opts.find(o => norm(o.value) === v) || opts.find(o => norm(o.text) === v)
       || opts.find(o => norm(o.text).startsWith(v + ' ')) || opts.find(o => num(o.text) !== null && num(o.text) === num(value) && /^[0-9.,\s-]+$/.test(value));
     if (!o || (!o.value && v)) return {status: 'no-option', name: c.name, options: opts.map(o => o.text.trim()).slice(0, 60)};
+    if (verify) return {status: c.value === o.value ? "ok" : "changed"};
     c.value = o.value;
   } else if (c.type === 'radio') {
     const group = controls.filter(r => r.type === 'radio' && r.name === c.name);
     const r = group.find(r => norm(r.value) === v) || group.find(r => norm(labelOf(r)) === v);
     if (!r) return {status: 'no-option', options: group.map(r => labelOf(r) || r.value)};
-    if (!r.checked) r.click();
+    if (!verify && !r.checked) r.click();
     return {status: r.checked ? 'ok' : 'unverified', name: r.name, set: labelOf(r).trim()};
   } else if (c.type === 'checkbox') {
     const checked = /^(true|1|yes|ja|x|on|checked)$/i.test(String(value).trim());
-    if (c.checked !== checked) c.click();
+    if (!verify && c.checked !== checked) c.click();
     if (c.checked !== checked) return {status: 'unverified', name: c.name};
   } else if (c.isContentEditable) {
+    if (verify) return {status: c.textContent === value ? "ok" : "changed"};
     c.focus(); c.textContent = value;
   } else if (c.type === 'range') {     // 'max' -> its maximum
-    c.focus(); setValue(c, num(value) === null ? (c.max || '100') : String(num(value)));
+    const expected = num(value) === null ? (c.max || '100') : String(num(value));
+    if (verify) return {status: c.value === expected ? 'ok' : 'changed'};
+    c.focus(); setValue(c, expected);
   } else {
+    if (verify) return {status: c.value === value ? "ok" : "changed"};
     c.focus(); setValue(c, value);
   }
+  if (verify) return {status: 'ok'};
   c.dispatchEvent(new Event('input', {bubbles: true}));
   c.dispatchEvent(new Event('change', {bubbles: true}));
   return {status: 'ok', name: c.name};
@@ -187,6 +197,14 @@ async def fill_fields(evaluate, pairs: list[tuple[str, str]], apply_button: str 
         else:
             failed = True
             lines.append(f"{field} = {value}: FAILED ({status})")
+    if pairs and not failed:
+        # Framework changes often apply on the next render, or a later select resets an earlier field.
+        await asyncio.sleep(0.2)
+        for field, value in pairs:
+            checked = await evaluate(SET_JS, [field, value, True])
+            if not isinstance(checked, dict) or checked.get("status") != "ok":
+                failed = True
+                lines.append(f"{field}: FAILED readback ({checked.get('status') if isinstance(checked, dict) else checked}); inspect current form")
     if then_click and not failed:
         lines.append(f"click '{then_click}': {await click(evaluate, then_click)}")
     elif then_click:

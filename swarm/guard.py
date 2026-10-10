@@ -240,7 +240,9 @@ class PopupGuard:
             if key in _DECISIONS:
                 out[item["id"]] = _DECISIONS[key]
             elif key in self._fresh:
-                out[item["id"]] = self._fresh.pop(key)
+                observed, decision = self._fresh.pop(key)
+                if observed == item.get("text"):
+                    out[item["id"]] = decision
             elif key not in _PENDING:
                 unknown.append((key, item))
         if unknown:
@@ -262,7 +264,7 @@ class PopupGuard:
                 if decision.get("action") != "fill" or cacheable_fill(decision):
                     _DECISIONS[key] = decision      # a fill that copies a displayed code: asked again each time
                 else:
-                    self._fresh[key] = decision
+                    self._fresh[key] = (item.get("text"), decision)
                 log.info("guard %s: %s %s -> %s %s", site, item["kind"], item["text"][:80], decision.get("action"),
                          decision.get("kind"))
         except Exception as error:              # model slow or failing: the agent handles these items itself
@@ -290,7 +292,9 @@ class PopupGuard:
             handled = 0
             for item in items:
                 decision = decisions.get(item["id"]) or {}
-                sig = signature(item)
+                sig = str(scan.get("url", "")) + "|" + signature(item)
+                if decision.get("action") == "fill" and not cacheable_fill(decision):
+                    sig += "|" + str(item.get("text", ""))
                 if not allowed(decision, item, self.careful) or self._tries.get(sig, 0) >= MAX_ACTIONS_PER_ITEM:
                     continue
                 self._tries[sig] = self._tries.get(sig, 0) + 1

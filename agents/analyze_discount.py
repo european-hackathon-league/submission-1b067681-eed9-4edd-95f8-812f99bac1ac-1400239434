@@ -13,6 +13,7 @@ results["mail"] = {
   "fx_fixing": {currency: eur_per_unit}, "price_indices": {index: eur_per_kg}
 }  (numbers as strings)
 """
+from email.utils import parseaddr
 import asyncio
 import logging
 from datetime import datetime
@@ -48,11 +49,12 @@ INSTRUCTION = ("Extract every mail MESSAGE on these pages (ignore result lists w
 
 
 def _local(addr) -> str:
-    return str(addr or "").strip().lower().split("@")[0]
+    return (parseaddr(str(addr or ""))[1] or str(addr or "")).strip().lower().split("@")[0]
 
 
 def _domain(addr) -> str:
-    return str(addr or "").strip().lower().rpartition("@")[2]
+    value = parseaddr(str(addr or ""))[1] or str(addr or "")
+    return value.strip().lower().rpartition("@")[2] if "@" in value else ""
 
 
 def valid_messages(messages: list[dict], ref: str, scenario: datetime | None, senders: dict, domain: str) -> list[dict]:
@@ -156,7 +158,17 @@ async def publish(ctx) -> list[dict]:
     messages = [m for r in cache.values() for m in (r.get("messages") or [])]
     unique = {(m.get("subject"), m.get("date"), m.get("sender")): m for m in messages}
     valid = valid_messages(list(unique.values()), ref, scenario, senders, domain)
-    approvals = [m for m in valid if m.get("topic") == "discount_approval" and to_decimal(m.get("discount_percent")) is not None]
+    approvals = [m for m in valid if m.get("topic") == "discount_approval"]
+    invalid_approval = False
+    if approvals:
+        latest = approvals[-1]
+        percent = to_decimal(latest.get("discount_percent"))
+        threshold = to_decimal(latest.get("min_order_value_eur"))
+        invalid_approval = (percent is None or not 0 <= percent <= 100
+                            or (latest.get("min_order_value_eur") not in (None, "") and (threshold is None or threshold < 0)))
+        if invalid_approval:
+            approvals = []  # an unreadable replacement must not revive an older approval
+            ctx.board.error("DiscountAnalyzer", "Latest discount approval has invalid numeric terms; recollect it")
     if approvals:
         a = approvals[-1]
         discount = {"percent": format(to_decimal(a["discount_percent"]).normalize(), "f"),
@@ -164,7 +176,7 @@ async def publish(ctx) -> list[dict]:
                                         if to_decimal(a.get("min_order_value_eur")) is not None else None),
                     "source": f"{a.get('subject')} {a.get('date')} {a.get('sender')}"}
     else:
-        discount = {"percent": "0", "min_order_value": None, "source": "no valid approval found"}
+        discount = {"percent": "0", "min_order_value": None, "source": "latest approval invalid" if invalid_approval else "no valid approval found"}
     await ctx.board.set("mail_messages", list(unique.values()))
     if owners:
         await ctx.board.set("mailbox", owners[0])

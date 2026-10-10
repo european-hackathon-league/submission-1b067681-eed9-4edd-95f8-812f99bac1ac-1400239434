@@ -36,6 +36,10 @@ class Normalize(unittest.TestCase):
         self.assertEqual(to_datetime("03.04.2031, 10:00").month, 4)
         self.assertEqual(to_datetime("02/07 (MM/TT) 2031").month, 2)
         self.assertEqual(to_datetime("02/07 (TT/MM) 2031").month, 7)
+        self.assertEqual(to_datetime('2031-02-01 13:00 Europe/Athens'), to_datetime('2031-02-01T11:00:00Z'))
+        self.assertEqual(to_datetime('01.07.2031 13:00 Europe/Berlin'), to_datetime('2031-07-01T11:00:00Z'))
+        self.assertEqual(to_datetime('01.07.2031 13:00 UTC+03:00'), to_datetime('2031-07-01T10:00:00Z'))
+        self.assertIsNone(to_datetime('2031-01-01 10:00 Invalid/Timezone'))
 
     def test_refs_and_text(self):
         self.assertEqual(norm_ref("x​y-1 "), "XY-1")
@@ -104,6 +108,34 @@ class Mail(unittest.TestCase):
 
 
 class Pricing(unittest.TestCase):
+    def test_unpriced_member_keeps_its_pool_share_and_makes_bonus_unknown(self):
+        inputs = {
+            'brief':{'tender_reference':'fixture','scenario_date':'2031-02-01'},
+            'tender':{'positions':[{'position':p,'unit':'Stk'} for p in ('1','2')],
+                      'clarifications':[{'positions':['1','2'],'keys':{'setup_pool':'S','bonus_plan':'B'}}]},
+            'quantities':{'1':{'quantity':1},'2':{'quantity':1}},
+            'materials':{'1':{'material':'M1'},'2':{'material':'M2'}},
+            'erp':{'materials':{m:{'allocation_mass_g':'100','lead_time_production_weeks':'2'} for m in ('M1','M2')},
+                   'conditions':[{'material':'M1','price_unit':'1','scales':[{'min_qty':'1','price':'100'}]}]},
+            'mail':{'setup_pools':{'S':'20'},'project_bonus':{'B':[{'from':'0','percent':'10'}]}},
+            'discount':{'percent':'5','min_order_value':'150'},
+        }
+        bid = compute(inputs)
+        self.assertEqual(bid['answer']['positions'][0]['unit_price'], 110)
+        self.assertNotIn('rebate_total', bid['answer']['positions'][0])
+        self.assertFalse(bid['order_value_complete'])
+        self.assertFalse(bid['discount_resolved'])
+
+    def test_unconditional_discount_survives_no_bid(self):
+        bid = compute({'brief':{'tender_reference':'fixture'}, 'tender':{'positions':[{'position':'1'}]},
+                       'materials':{'1':{'reason':'only blocked matches'}}, 'discount':{'percent':'5'}})
+        self.assertEqual(bid['answer']['decision'], 'no_bid')
+        self.assertEqual(bid['answer']['discount_percent'], 5)
+
+    def test_missing_price_unit_or_scenario_does_not_get_guessed(self):
+        self.assertIsNone(scale_price({'scales':[{'min_qty':1,'price':10}]}, 1))
+        self.assertIsNone(valid_condition([{'material':'M'}], 'M', None))
+
     def test_scale_validity_and_allocation(self):
         cond = [{"material": "M-1", "valid_from": "01.01.2031", "valid_to": "31.03.2031, 23:59:59 UTC",
                  "price_unit": "10", "number_format": "en-US",

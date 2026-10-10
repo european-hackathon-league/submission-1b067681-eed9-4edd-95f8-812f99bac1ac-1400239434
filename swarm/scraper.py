@@ -68,6 +68,12 @@ class SiteScraper(Agent):
                 note = (f"\n\nNOTE: previous attempt stopped early ({out['summary'][:300]!r}). Already saved: "
                         f"{saved or 'nothing'}. Do only what is missing.")
             out = await self.browse(job + note, **kwargs)
+            rejected = self.ctx.shared.get("site_invalidations", {}).get(self.role, set())
+            if self.site_id in rejected:
+                self.site_id = await site_for(self.ctx, self.role)
+                # A reused tab may still show the old application; runtime model navigates the newly assigned URL.
+                job += "\nThe prior site assignment was contradicted. Navigate to the newly assigned site URL in Login."
+                out["done"] = False
             if out["done"] or self.ctx.seconds_left() - kwargs.get("stop_reserve", SUBMIT_RESERVE_S + ANALYSIS_RESERVE_S) < 120:
                 break
         return out

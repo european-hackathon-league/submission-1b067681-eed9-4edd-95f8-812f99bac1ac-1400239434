@@ -58,16 +58,38 @@ def apply_amendments(requirements: dict, current: str, clarifications: list[dict
 
 
 async def analyse(ctx) -> tuple[list, str, dict]:
-    blocks = [page_block(e) for e in pages(ctx, "spec")]
-    out = await extract(ctx, "Extract specification's revision list and requirement rows (every revision whose "
-                             "rows are on the pages). Revision current only if its status says so (e.g. "
-                             "gültig/aktuell/current), never if superseded (ersetzt).",
-                        SHAPE, blocks, list_key=("requirements", "revisions"))
-    revisions = out.get("revisions") or []
+    """Extract pages independently and publish every completed requirement table immediately."""
+    cache = ctx.shared.setdefault("spec.extracted", {})
+    async with ctx.lock("spec.extract"):
+        async def one(e):
+            key = (e.data.get("url"), hash(e.data.get("text", "")))
+            if key in cache:
+                return
+            try:
+                out = await extract(ctx, "Extract specification revision statuses and requirement rows. Mark current only with explicit valid/current status; never superseded.",
+                                    SHAPE, [page_block(e)], list_key=("requirements", "revisions"))
+                if out.get("_incomplete"):
+                    return
+                cache[key] = out
+                revisions, current, requirements = merge_spec(ctx)
+                if current:
+                    await ctx.board.set("spec", {"revisions":revisions, "current":current})
+                    ctx.shared["spec.base_requirements"] = requirements
+                    await publish(ctx)
+            except Exception as error:
+                ctx.board.error("RequirementAnalyzer", f"spec extraction: {type(error).__name__}")
+        await asyncio.gather(*(one(e) for e in pages(ctx, "spec")))
+    return merge_spec(ctx)
+
+
+def merge_spec(ctx) -> tuple[list, str, dict]:
+    cache = ctx.shared.get("spec.extracted", {})
+    completed = [cache.get((e.data.get("url"), hash(e.data.get("text", ""))), {}) for e in pages(ctx, "spec")]
+    revisions = [r for page in completed for r in page.get("revisions") or []]
     flagged = [r for r in revisions if r.get("is_current") is True]
     flagged.sort(key=lambda r: to_datetime(r.get("date")) or to_datetime("1970-01-01"))
     current = flagged[-1]["revision"] if flagged else ""
-    rows = out.get("requirements") or []
+    rows = [r for page in completed for r in page.get("requirements") or []]
     rows = [r for r in rows if current and norm_ref(r.get("revision")) == norm_ref(current)]
     requirements = {}
     for r in rows:
@@ -90,6 +112,8 @@ async def refresh(ctx, wait_tender: float = 0) -> dict:
     if not pages(ctx, "spec"):
         raise RuntimeError("no specification pages were saved")
     revisions, current, requirements = await analyse(ctx)
+    if requirements:
+        ctx.shared["spec.base_requirements"] = requirements
     await ctx.board.set("spec", {"revisions": revisions, "current": current})
     if requirements:
         await ctx.board.set("requirements", requirements)
@@ -97,10 +121,21 @@ async def refresh(ctx, wait_tender: float = 0) -> dict:
     tender = ctx.board.get("tender")
     if tender is None and wait_tender > 0:
         tender = await ctx.board.wait_for(key="tender", timeout=wait_tender)
-    amended = apply_amendments({k: dict(v) for k, v in requirements.items()}, current,
-                               (tender or {}).get("clarifications") or [])
+    return await publish(ctx)
+
+
+async def publish(ctx) -> dict:
+    """Reapply newly arrived Q&A to original revision facts, never to already amended values."""
+    from copy import deepcopy
+    base = ctx.shared.get("spec.base_requirements")
+    if base is None:
+        return ctx.board.get("requirements") or {}
+    current = (ctx.board.get("spec") or {}).get("current", "")
+    # A newer governing revision may have been observed before its requirements finish extracting.
+    base = {k:v for k,v in base.items() if norm_ref(v.get("revision")) == norm_ref(current)}
+    amended = apply_amendments(deepcopy(base), current, (ctx.board.get("tender") or {}).get("clarifications") or [])
     await ctx.board.set("requirements", amended)
-    if ctx.board.get("done.spec") is not None and tender is not None:
+    if ctx.board.get("done.spec") is not None and ctx.board.get("tender_final"):
         await ctx.board.set("requirements_final", True)
     return amended
 

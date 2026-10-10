@@ -1,7 +1,8 @@
 """Turn strings as found on the sites into values: decimals (de-DE / en-US formats), dates, references; and back into
 the German display format the bid form expects. Pure functions, unit tested; no scenario knowledge."""
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 _ZERO_WIDTH = re.compile(r"[​-‍⁠﻿­]")
@@ -87,7 +88,7 @@ def to_datetime(text) -> datetime | None:
         raw = iso.group(0).replace("Z", "+00:00").replace(" ", "T")
         try:
             dt = datetime.fromisoformat(raw)
-            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+            return dt if dt.tzinfo else _localize(dt, s)
         except ValueError:
             pass
     time_m = re.search(r"(\d{1,2}):(\d{2})(?::(\d{2}))?", s)
@@ -95,7 +96,7 @@ def to_datetime(text) -> datetime | None:
     de = re.search(r"(\d{1,2})\.(\d{1,2})\.(\d{4})", s)
     if de:
         d, m, y = map(int, de.groups())
-        return _safe(y, m, d, hh, mm, ss)
+        return _localize(_safe(y, m, d, hh, mm, ss), s)
     slash = re.search(r"(\d{1,2})/(\d{1,2})(?:/(\d{4}))?", s)
     if slash:
         a, b = int(slash.group(1)), int(slash.group(2))
@@ -105,11 +106,31 @@ def to_datetime(text) -> datetime | None:
             month_first = bool(re.search(r"MM\s*/\s*(TT|DD)", s, re.I)) or (
                 not re.search(r"(TT|DD)\s*/\s*MM", s, re.I) and b > 12)
             m, d = (a, b) if month_first else (b, a)
-            return _safe(int(year), m, d, hh, mm, ss)
+            return _localize(_safe(int(year), m, d, hh, mm, ss), s)
     word = re.search(r"(\d{1,2})\.?\s+([A-Za-zä]{3})[a-zä]*\.?\s+(\d{4})", s)
     if word and word.group(2).lower()[:3] in _MONTHS:
-        return _safe(int(word.group(3)), _MONTHS[word.group(2).lower()[:3]], int(word.group(1)), hh, mm, ss)
+        return _localize(_safe(int(word.group(3)), _MONTHS[word.group(2).lower()[:3]], int(word.group(1)), hh, mm, ss), s)
     return None
+
+
+def _localize(dt, text):
+    if dt is None:
+        return None
+    named = re.search(r"\b([A-Za-z]{3,}/[A-Za-z_]+(?:/[A-Za-z_]+)?)\b", text)
+    if named:
+        try:
+            return dt.replace(tzinfo=ZoneInfo(named.group(1)))
+        except ZoneInfoNotFoundError:
+            return None
+    offset = re.search(r"(?:UTC|GMT)\s*([+-])(\d{1,2})(?::?(\d{2}))?", text, re.I)
+    if offset:
+        minutes = int(offset.group(2)) * 60 + int(offset.group(3) or 0)
+        if minutes >= 24 * 60:
+            return None
+        return dt.replace(tzinfo=timezone(timedelta(minutes=minutes if offset.group(1) == '+' else -minutes)))
+    abbreviation = re.search(r"\b(CEST|CET|UTC|GMT)\b", text)
+    hours = {'CEST':2, 'CET':1, 'UTC':0, 'GMT':0}.get(abbreviation.group(1), 0) if abbreviation else 0
+    return dt.replace(tzinfo=timezone(timedelta(hours=hours)))
 
 
 def _safe(y, m, d, hh=0, mm=0, ss=0):

@@ -105,7 +105,9 @@ async def run_swarm(task: dict, playwright, scored: bool, env=os.environ):
                 for t in pending:
                     t.cancel()
                 await asyncio.gather(*pending, return_exceptions=True)
-                from agents import analyze_discount, analyze_materials
+                from agents import analyze_discount, analyze_materials, analyze_quantities, analyze_requirements
+                await analyze_quantities.publish(ctx)
+                await analyze_requirements.publish(ctx)
                 await analyze_discount.publish(ctx)
                 await analyze_materials.publish(ctx)
                 log.info("board after collect (%.0fs left): %s", ctx.seconds_left(), board_summary(board))
@@ -118,7 +120,10 @@ async def run_swarm(task: dict, playwright, scored: bool, env=os.environ):
                 raise RuntimeError("No confirmed portal receipt; the run did not verify submission")
             log.info("portal acceptance confirmed: %s", receipt.get("reference"))
             return None                      # a "site" submission was entered by the submitter agent
-        return board.get("answer")
+        answer = board.get("answer")
+        if answer is None:
+            raise RuntimeError("No schema-valid API answer was produced")
+        return answer
     finally:
         pending = list(guard._TASKS)
         for t in pending:

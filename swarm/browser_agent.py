@@ -59,7 +59,7 @@ AboutBlankWatchdog._show_dvd_screensaver_loading_animation_cdp = _no_loading_ani
 import browsers  # noqa: E402
 import models  # noqa: E402
 from swarm.context import SUBMIT_RESERVE_S  # noqa: E402
-from swarm.llm import CALL_TIMEOUT_S  # noqa: E402
+from swarm.llm import CALL_TIMEOUT_S, HTTP_TIMEOUT  # noqa: E402
 from swarm.guard import PopupGuard  # noqa: E402
 from swarm.page_text import EXTRACT_JS, NEXT_JS, clean  # noqa: E402
 
@@ -106,6 +106,7 @@ Rules:
 - Found reliable shortcut on this site (URL pattern opening list/record directly, which click opens record, how gate passes) -> share_tip once, so other agents skip the search.
 - Traps: look-alike or superseded records, decoy links, oldest-first document views, archive folders, number locale (de-DE 1.234,5 vs en-US 1,234.5), other timezones, MM/DD dates.
 - Tabs you did not open belong to other agents: never switch to or close them.
+- If a site cannot fulfill its assigned role, report_site_capability with present=false and observed capabilities. The coordinator can remap it. Report additional capabilities with present=true.
 - Never invent values. Goal met or stuck -> `done` with short summary."""
 
 # browser-use actions our agents never need: web search (other hosts are off limits anyway), LLM page extraction and
@@ -142,6 +143,12 @@ class DocumentParams(BaseModel):
     member: str = Field(default="", description="For ZIP: exact member name selected from its listing")
     topic: str = "document"
     evidence_role: str = ""
+
+
+class CapabilityParams(BaseModel):
+    role: str = Field(description="Business capability: tender, spec, erp, or mail")
+    present: bool = Field(description="Whether observed content supports this role; false reports a mistaken assignment")
+    observation: str = Field(description="Visible headings, menus or facts supporting your assessment")
 
 
 class VisualParams(BaseModel):
@@ -188,16 +195,21 @@ class QwenChat(ChatOpenAI):
     thinking in the reply), which roughly halves the time per step, and asks for a JSON object reply (otherwise the
     model sometimes answers in prose and the step fails). SWARM_BROWSER_THINKING=1 turns the reasoning pass back on."""
 
-    _usage_ctx: Any = PrivateAttr(default=None)
+    _usage_ctx: Any = None
+
+    _sdk_client = None
 
     def get_client(self):
-        client = super().get_client()
-        if os.environ.get("SWARM_BROWSER_THINKING") == "1" or getattr(client, "_qwen_patched", False):
+        client = self._sdk_client
+        if client is None:
+            client = self._sdk_client = super().get_client()
+        if getattr(client, "_qwen_patched", False):
             return client
         create = client.chat.completions.create
 
         async def create_without_thinking(*args, **kwargs):
-            kwargs["extra_body"] = {**(kwargs.get("extra_body") or {}), **models.NO_THINKING}
+            if os.environ.get("SWARM_BROWSER_THINKING") != "1":
+                kwargs["extra_body"] = {**(kwargs.get("extra_body") or {}), **models.NO_THINKING}
             kwargs.setdefault("response_format", {"type": "json_object"})   # without it Qwen sometimes replies in prose
             if self._usage_ctx is not None:
                 usage = self._usage_ctx.llm
@@ -225,7 +237,7 @@ def make_llm(flash: bool = False) -> ChatOpenAI:
     """The hosted Qwen through the proxy. Settings tuned for a non-OpenAI model; adjust here if tool calls misbehave.
     Flash replies are a short memory plus actions: the lower token cap stops a runaway reply early."""
     return QwenChat(model=models.QWEN_MODEL, base_url=os.environ["QWEN_BASE_URL"], api_key=os.environ["QWEN_API_KEY"],
-                    temperature=0.0, frequency_penalty=None, timeout=CALL_TIMEOUT_S, max_retries=0,
+                    temperature=0.0, frequency_penalty=None, timeout=HTTP_TIMEOUT, max_retries=1,
                     max_completion_tokens=2000 if flash else 4096,
                     add_schema_to_system_prompt=True, dont_force_structured_output=True,
                     remove_min_items_from_schema=True, remove_defaults_from_schema=True)
@@ -648,6 +660,9 @@ async def browse(ctx, goal: str, *, browser: int = 0, tab: Tab | None = None, si
                 await session.kill() if not browsers.cdp_urls() else await session.stop()
         except TimeoutError:
             log.warning("browser cleanup exceeded its budget for %s", author)
+        finally:
+            if browsing_llm._sdk_client is not None:
+                await browsing_llm._sdk_client.close()
     return {"summary": history.final_result() or "", "records": records, "steps": len(history.history),
             "done": history.is_done() and history.is_successful() is True,
             "finished": history.is_done(), "guard_actions": guard.actions}
@@ -663,6 +678,29 @@ def build_tools(ctx, site_id: str, author: str, emit, dedupe_reads: bool = True)
         kind = f"{role}.page" if role in ("tender", "spec", "erp", "mail") else "page"
         await emit({"kind": kind, "data": {"topic": topic, "url": url, "text": text},
                     "source": url, "note": "", "site": site_id, "author": author})
+
+    @tools.action("Report observed site capabilities or a mistaken role assignment so agents can reorient.", param_model=CapabilityParams)
+    async def report_site_capability(params: CapabilityParams, browser_session: BrowserSession):
+        from swarm.sites import ROLES
+        if params.role not in ROLES or not params.observation.strip():
+            return ActionResult(error="Give a supported role and observations")
+        url = await browser_session.get_current_page_url()
+        actual = next((s.get("siteId") for s in ctx.task.get("access", [])
+                       if urlparse(s.get("url", "")).netloc == urlparse(url).netloc), None)
+        if actual is None:
+            return ActionResult(error="Current page is outside the task websites")
+        ctx.shared.setdefault("site_observations", {})[actual] = params.observation[:2500]
+        rejected = ctx.shared.setdefault("site_invalidations", {}).setdefault(params.role, set())
+        mapping = dict(ctx.board.get("sites") or {})
+        if params.present:
+            rejected.discard(actual)
+            mapping[params.role] = actual
+        else:
+            rejected.add(actual)
+            if mapping.get(params.role) == actual:
+                mapping.pop(params.role)
+        await ctx.board.set("sites", mapping)
+        return ActionResult(extracted_content="Capability observation saved. If your assigned role is absent, finish with success=false for remapping.")
 
     @tools.action("Read a selected PDF/text/ZIP document; ZIP without member lists its files for you to choose.", param_model=DocumentParams)
     async def read_document(params: DocumentParams, browser_session: BrowserSession):

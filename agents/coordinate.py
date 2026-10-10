@@ -86,7 +86,7 @@ def find_gaps(board, ready: set[str], saved_topics: dict[str, list[str]]) -> lis
                                           "requirement references")
     if positions and not any(w in t for t in saved_topics.get("tender", []) for w in ("q&a", "frage", "question", "clarif", "bieter")):
         gap("tender", "tender q&a", "bidder Q&A of the tender, all pages (if the tender has any)")
-    if (board.get("discount") or {}).get("source") == "no valid approval found":
+    if (board.get("discount") or {}).get("source") in ("no valid approval found", "latest approval invalid"):
         gap("mail", "mail discount", f"sales director's discount approval for {brief.get('tender_reference')} "
                                      "(inbox and archive)")
     clarifications = tender.get("clarifications") or []

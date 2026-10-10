@@ -59,36 +59,77 @@ def final_quantities(positions: list[dict], clarifications: list[dict]) -> dict:
     return out
 
 
-async def refresh(ctx) -> dict:
-    """Extract the saved tender pages and publish results["tender"] and results["quantities"]; returns the tender."""
-    blocks = [page_block(e) for e in pages(ctx, "tender")]
-    if not blocks:
-        raise RuntimeError("no tender pages were saved")
-    ref = (ctx.board.get("brief") or {}).get("tender_reference", "")
-    pos_out, qa_out = await asyncio.gather(
-        extract(ctx, "List the tender's positions from the bill of quantities / position overview "
-                     "(original tender quantities, not Q&A changes).", POSITIONS_SHAPE, blocks),
-        extract(ctx, f"List EVERY bidder Q&A entry for tender {ref} (all pages). Classify each answer.",
-                QA_SHAPE, blocks, list_key="clarifications"))
-    positions = [p for p in (pos_out or {}).get("positions", []) if p.get("position")]
-    seen, clarifications = set(), []
-    for c in qa_out.get("clarifications", []):
-        key = norm_ref(c.get("number")) or norm_ref(c.get("question"))
-        if key and key not in seen:
-            seen.add(key)
-            clarifications.append(c)
-    tender = {"meta": (pos_out or {}).get("meta", {}), "positions": positions, "clarifications": clarifications}
+def _key(e):
+    return (e.data.get("url"), hash(e.data.get("text", "")))
+
+
+async def publish(ctx) -> dict:
+    """Reconcile completed page extractions in observation order, without another model call."""
+    cache = ctx.shared.get("tender.extracted", {})
+    meta, positions, clarifications = {}, {}, {}
+    for e in pages(ctx, "tender"):
+        for kind in ("positions", "clarifications"):
+            result = cache.get((_key(e), kind), {})
+            meta.update({k: v for k, v in (result.get("meta") or {}).items() if v})
+            for row in result.get("positions") or []:
+                pos = str(row.get("position") or "").strip()
+                if pos:
+                    positions.setdefault(pos, {}).update({k:v for k,v in row.items() if v not in (None, "")})
+            for row in result.get("clarifications") or []:
+                key = norm_ref(row.get("number")) or norm_ref(row.get("question"))
+                if key:
+                    clarifications[key] = row
+    if not positions:
+        return ctx.board.get("tender") or {}
+    tender = {"meta":meta, "positions":list(positions.values()), "clarifications":list(clarifications.values())}
     await ctx.board.set("tender", tender)
-    quantities = final_quantities(positions, clarifications)
-    await ctx.board.set("quantities", quantities)
-    log.info("%d positions, %d Q&A, quantities %s", len(positions), len(clarifications), quantities)
+    await ctx.board.set("quantities", final_quantities(tender["positions"], tender["clarifications"]))
+    from agents import analyze_requirements
+    await analyze_requirements.publish(ctx)
     return tender
+
+
+async def refresh(ctx) -> dict:
+    """Stream each completed extraction; a slow Q&A page cannot hide already known positions."""
+    cache = ctx.shared.setdefault("tender.extracted", {})
+    ref = (ctx.board.get("brief") or {}).get("tender_reference", "")
+    async with ctx.lock("tender.extract"):
+        async def one(e, kind, shape, instruction):
+            key = (_key(e), kind)
+            if key in cache:
+                return
+            try:
+                result = await extract(ctx, instruction, shape, [page_block(e)], list_key=kind)
+                if result.get("_incomplete"):
+                    return
+                cache[key] = result
+                await publish(ctx)
+            except Exception as error:
+                ctx.board.error("QuantityAnalyzer", f"{kind} extraction: {type(error).__name__}")
+        await asyncio.gather(*(one(e, kind, shape, instruction) for e in pages(ctx, "tender")
+            for kind, shape, instruction in (
+                ("positions", POSITIONS_SHAPE, "Extract original tender positions and metadata. Do not treat Q&A quantities as original quantities."),
+                ("clarifications", QA_SHAPE, f"Extract every bidder Q&A for exact tender {ref}; ignore unrelated tenders."))))
+    result = await publish(ctx)
+    log.info("%d positions, %d Q&A", len(result.get("positions", [])), len(result.get("clarifications", [])))
+    return result
 
 
 @register
 class QuantityAnalyzer(Agent):
-    phase = Phase.COLLECT        # runs as soon as the tender scraper is done, while the other sites are still read
+    phase = Phase.COLLECT
 
     async def run(self) -> None:
-        await self.ctx.board.wait_for(key="done.tender", timeout=max(1.0, self.ctx.time_left()))
-        await refresh(self.ctx)
+        seen = -1
+        while self.ctx.time_left() > 0:
+            count = len(pages(self.ctx, "tender"))
+            if count and count != seen:
+                await refresh(self.ctx)
+                seen = count
+            if self.ctx.board.get("done.tender") is not None:
+                await refresh(self.ctx)
+                await self.ctx.board.set("tender_final", True)
+                from agents import analyze_requirements
+                await analyze_requirements.publish(self.ctx)
+                return
+            await asyncio.sleep(2)

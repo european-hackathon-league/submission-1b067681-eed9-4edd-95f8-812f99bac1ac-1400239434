@@ -15,7 +15,8 @@ ROLES = {
 async def resolve_roles(ctx) -> dict:
     """Map capabilities at runtime; incomplete mappings are retried, observed contradictions can be corrected."""
     async with ctx.lock("sites"):
-        known = ctx.board.get("sites") or {}
+        invalid = ctx.shared.setdefault("site_invalidations", {})
+        known = {r: v for r, v in (ctx.board.get("sites") or {}).items() if v not in invalid.get(r, set())}
         if all(role in known for role in ROLES):
             return known
         sites = [{"siteId": s.get("siteId"), "url": s.get("url")} for s in ctx.task.get("access", [])]
@@ -27,8 +28,8 @@ async def resolve_roles(ctx) -> dict:
                     "Map roles to siteId using the brief and observations. Reply {tender: siteId, spec: siteId, "
                     "erp: siteId, mail: siteId, inspect: [siteId]}. Omit uncertain mappings and select up to two "
                     "sites to inspect when names are opaque. Multiple capabilities may share a site.",
-                    f"Roles: {ROLES}\nSites: {sites}\nCurrent mapping: {mapping}\nObservations: {observations}\nBrief:\n{ctx.brief}")
-                mapping.update({r: v for r, v in (out or {}).items() if r in ROLES and v in ctx.site_ids})
+                    f"Roles: {ROLES}\nSites: {sites}\nCurrent mapping: {mapping}\nObservations: {observations}\nRejected role/site pairs: {invalid}\nBrief:\n{ctx.brief}")
+                mapping.update({r: v for r, v in (out or {}).items() if r in ROLES and v in ctx.site_ids and v not in invalid.get(r, set())})
                 await ctx.board.set("sites", mapping)
                 if all(role in mapping for role in ROLES):
                     break

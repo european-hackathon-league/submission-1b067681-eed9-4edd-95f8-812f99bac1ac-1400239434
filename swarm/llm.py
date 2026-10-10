@@ -3,8 +3,10 @@ import asyncio
 import json
 import re
 import os
+import httpx
 
 CALL_TIMEOUT_S = float(os.environ.get("SWARM_MODEL_TIMEOUT_S", "55"))
+HTTP_TIMEOUT = httpx.Timeout(CALL_TIMEOUT_S, connect=8, write=15, pool=8)
 
 import models
 from openai import APIConnectionError, APIStatusError
@@ -26,13 +28,14 @@ def parse_json(text: str):
 class LLM:
     def __init__(self, max_concurrent: int = 16):
         self._sem = asyncio.Semaphore(max_concurrent)   # team limit is 32 concurrent Qwen calls
+        self._analysis_sem = asyncio.Semaphore(max(1, max_concurrent // 2))
         self._client = None
         self.calls = 0
         self.tokens = {"prompt": 0, "completion": 0}
 
     @property
     def client(self):
-        self._client = self._client or models.qwen().with_options(timeout=CALL_TIMEOUT_S, max_retries=0)
+        self._client = self._client or models.qwen().with_options(timeout=HTTP_TIMEOUT, max_retries=0)
         return self._client
 
     async def chat(self, messages: list[dict], *, tools: list[dict] | None = None, model: str = models.QWEN_MODEL,
@@ -45,7 +48,7 @@ class LLM:
             args["extra_body"] = {**(args.get("extra_body") or {}), **models.NO_THINKING}
         if tools:
             args["tools"] = tools
-        async with self._sem:
+        async with self._analysis_sem, self._sem:
             # Bound each attempt, including providers that leave a connection open without replying.
             for attempt in range(2):
                 try:

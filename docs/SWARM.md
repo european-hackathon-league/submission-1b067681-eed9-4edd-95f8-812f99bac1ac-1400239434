@@ -187,3 +187,8 @@ Open shadow roots, visible editable controls, PDF/text/ZIP documents, and explic
 support. Failed or unverified form fields prevent the helper's continue click. These mechanisms do not guarantee
 compatibility with every framework or website. [The review backlog](REVIEW.md) distinguishes fixes from remaining
 risks; `scripts/evaluate_navigation.py` runs an opt-in live-model discovery check against two synthetic layouts.
+
+Tender positions and Q&A now publish independently as each extraction completes. Specification pages are cached and
+merged in observed order; late Q&A is reapplied to original revision facts. The default submission reserve is eight
+minutes. Connection establishment has an eight-second timeout; browsing clients are reused within a job and closed
+when it ends. The runtime capability-report tool can invalidate a previously complete site mapping.

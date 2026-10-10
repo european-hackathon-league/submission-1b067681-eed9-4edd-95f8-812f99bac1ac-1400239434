@@ -51,8 +51,76 @@ class BrowserControls(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['status'], 'ok')
         self.assertEqual(await self.page.locator('[contenteditable]').text_content(), 'verified text')
 
+    async def test_async_reset_blocks_continue(self):
+        await self.page.set_content('<input aria-label="Quantity" oninput="setTimeout(()=>this.value=\'reset\',0)">'
+                                    '<button onclick="document.body.dataset.advanced=1">Continue</button>')
+        report = await fill_fields(self.page.evaluate, [('Quantity','42')], then_click='Continue')
+        self.assertIn('FAILED readback', report)
+        self.assertIsNone(await self.page.locator('body').get_attribute('data-advanced'))
+
+    async def test_ambiguous_visible_labels_require_model_choice(self):
+        await self.page.set_content('<input aria-label="Amount"><input aria-label="Amount">')
+        result = await self.page.evaluate(SET_JS, ['Amount','42'])
+        self.assertEqual(result['status'], 'ambiguous')
+        self.assertEqual(await self.page.locator('input').first.input_value(), '')
+
 
 class InterruptedCollection(unittest.IsolatedAsyncioTestCase):
+    async def test_browsing_steps_reuse_one_client(self):
+        from swarm.browser_agent import QwenChat, ChatOpenAI
+        async def create(**kwargs): return NS(choices=[], usage=None)
+        client = NS(chat=NS(completions=NS(create=create)))
+        llm = QwenChat(model='fixture')
+        with patch.object(ChatOpenAI, 'get_client', return_value=client) as factory:
+            for _ in range(3):
+                await llm.get_client().chat.completions.create(messages=[])
+            self.assertEqual(factory.call_count, 1)
+
+    async def test_positions_publish_while_qa_is_still_pending(self):
+        from agents import analyze_quantities
+        ctx = Context(task={'brief':'','access':[]}, board=Blackboard(), llm=None, pool=None)
+        await ctx.board.post(Evidence('tender.page','t',{'url':'fixture','text':'a bill of quantities'}))
+        async def fake_extract(ctx, instruction, shape, blocks, **kwargs):
+            if kwargs['list_key'] == 'positions':
+                return {'positions':[{'position':'1','quantity':'2','unit':'Stk'}]}
+            await asyncio.Event().wait()
+        with patch.object(analyze_quantities, 'extract', fake_extract):
+            task = asyncio.create_task(analyze_quantities.refresh(ctx))
+            result = await ctx.board.wait_for(key='quantities', timeout=2)
+            self.assertEqual(result['1']['quantity'], 2)
+            self.assertFalse(task.done())
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        self.assertEqual(len(ctx.shared['tender.extracted']), 1)
+
+    async def test_spec_table_publishes_before_slow_document(self):
+        from agents import analyze_requirements
+        ctx = Context(task={'brief':'','access':[]}, board=Blackboard(), llm=None, pool=None)
+        for text in ('quick', 'slow'):
+            await ctx.board.post(Evidence('spec.page','s',{'url':text,'text':text}))
+        async def fake_extract(ctx, instruction, shape, blocks, **kwargs):
+            if 'quick' in blocks[0]:
+                return {'revisions':[{'revision':'C','is_current':True}],
+                        'requirements':[{'ref':'X','revision':'C','bore':'73'}]}
+            await asyncio.Event().wait()
+        with patch.object(analyze_requirements, 'extract', fake_extract):
+            task = asyncio.create_task(analyze_requirements.analyse(ctx))
+            result = await ctx.board.wait_for(key='requirements', timeout=2)
+            self.assertEqual(result['X']['bore'], '73')
+            self.assertFalse(task.done())
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    async def test_contradicted_complete_site_mapping_is_replaced(self):
+        from swarm.sites import resolve_roles
+        class LLM:
+            async def ask_json(self, *args, **kwargs): return {'erp':'second'}
+        ctx = Context(task={'brief':'','access':[{'siteId':'first'},{'siteId':'second'}]},
+                      board=Blackboard(), llm=LLM(), pool=None)
+        ctx.board.results['sites'] = dict.fromkeys(('tender','spec','erp','mail'), 'first')
+        ctx.shared['site_invalidations'] = {'erp':{'first'}}
+        self.assertEqual((await resolve_roles(ctx))['erp'], 'second')
+
     async def test_signer_reuses_pending_tan_and_requires_receipt(self):
         from agents import submit_bid
         from swarm.browser_agent import build_tools
@@ -132,6 +200,18 @@ class InterruptedCollection(unittest.IsolatedAsyncioTestCase):
 
 
 class DocumentsAndValidation(unittest.TestCase):
+    def test_invalid_optional_fields_do_not_discard_independent_credit(self):
+        from swarm.validation import prepare_answer
+        answer = {'decision':'bid', 'positions':[
+            {'position':'1','material_number':'M','quantity':2,'unit_price':10,'lead_time_weeks':3,'rebate_total':-1},
+            {'position':'2','material_number':'M','quantity':1,'unit_price':10,'lead_time_weeks':None}], 'total_net':30}
+        clean, issues = prepare_answer(answer)
+        self.assertEqual(len(clean['positions']), 1)
+        self.assertNotIn('rebate_total', clean['positions'][0])
+        self.assertEqual(clean['total_net'], 20)
+        self.assertEqual(len(issues), 2)
+        self.assertEqual(len(answer['positions']), 2)
+
     def test_zip_selection_requires_no_filesystem_extraction(self):
         from swarm.documents import document_text
         data = io.BytesIO()

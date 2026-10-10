@@ -1,10 +1,56 @@
 """Validate the runtime answer schema and cross-field arithmetic before filling a bid."""
 import json
+from copy import deepcopy
 from decimal import Decimal
 
 from jsonschema import Draft202012Validator
 
 from swarm.normalize import round_cents
+
+
+def prepare_answer(answer: dict, schema: dict | None = None) -> tuple[dict, list[str]]:
+    """Keep independent valid fields, omit malformed lines, and recompute the submitted total.
+
+    Never invent replacement business values. The runtime schema is the final authority.
+    """
+    answer = deepcopy(answer)
+    changes = []
+    item_schema = ((schema or {}).get('properties', {}).get('positions', {}).get('items') or {})
+    required = set(item_schema.get('required') or ('position', 'material_number', 'quantity', 'unit_price', 'lead_time_weeks'))
+    kept, seen = [], set()
+    for entry in answer.get('positions') or []:
+        pos = entry.get('position')
+        malformed = not pos or pos in seen
+        for name, value in list(entry.items()):
+            prop = item_schema.get('properties', {}).get(name)
+            bad = bool(prop and list(Draft202012Validator(prop).iter_errors(value)))
+            if name in ('quantity', 'lead_time_weeks'):
+                bad |= isinstance(value, bool) or not isinstance(value, int) or value < 0
+            elif name in ('unit_price','base_unit_price','surcharge_per_unit','packaging_per_unit','rebate_total'):
+                try:
+                    number = Decimal(str(value))
+                    bad |= not number.is_finite() or number < 0
+                except (ValueError, TypeError, ArithmeticError):
+                    bad = True
+            if bad:
+                if name in required:
+                    malformed = True
+                else:
+                    entry.pop(name)
+                    changes.append(f'{pos}: omitted invalid optional {name}')
+        malformed |= not required.issubset(entry)
+        if item_schema and list(Draft202012Validator(item_schema).iter_errors(entry)):
+            malformed = True
+        if malformed:
+            changes.append(f'{pos}: omitted malformed or duplicate position')
+        else:
+            kept.append(entry)
+            seen.add(pos)
+    if answer.get('decision') == 'no_bid':
+        kept = []
+    answer['positions'] = kept
+    answer['total_net'] = float(round_cents(sum((Decimal(e['quantity']) * Decimal(str(e['unit_price'])) for e in kept), Decimal(0))))
+    return answer, changes
 
 
 def answer_issues(answer: dict, schema: dict | None = None) -> list[str]:

@@ -25,12 +25,16 @@ def is_set_unit(unit) -> bool:
 
 def valid_condition(conditions: list[dict], material: str, scenario) -> dict | None:
     """The material's price condition valid on the scenario date (both endpoints inclusive); latest start wins."""
+    if scenario is None:
+        return None
     valid = []
     for c in conditions:
         if norm_ref(c.get("material")) != norm_ref(material):
             continue
         start, end = to_datetime(c.get("valid_from")), validity_end(c.get("valid_to"))
-        if scenario is None or ((start is None or start <= scenario) and (end is None or scenario <= end)):
+        if (c.get("valid_from") and start is None) or (c.get("valid_to") and end is None):
+            continue
+        if (start is None or start <= scenario) and (end is None or scenario <= end):
             valid.append((start or to_datetime("1970-01-01"), c))
     return max(valid, key=lambda x: x[0])[1] if valid else None
 
@@ -41,12 +45,12 @@ def scale_price(condition: dict, pieces: int) -> Decimal | None:
     rows = []
     for s in condition.get("scales") or []:
         q, p = to_decimal(s.get("min_qty"), fmt), to_decimal(s.get("price"), fmt)
-        if q is not None and p is not None and q <= pieces:
+        if q is not None and p is not None and 0 <= q <= pieces and p >= 0:
             rows.append((q, p))
     if not rows:
         return None
-    unit = to_decimal(condition.get("price_unit")) or Decimal(1)
-    return max(rows)[1] / (unit if unit > 0 else Decimal(1))
+    unit = to_decimal(condition.get("price_unit"))
+    return max(rows)[1] / unit if unit is not None and unit > 0 else None
 
 
 def allocate_cents(total: Decimal, weights: dict[str, Decimal]) -> dict[str, Decimal]:
@@ -128,6 +132,8 @@ def compute(inputs: dict) -> dict:
         if not mat:
             issues.append(f"{pos}: no material ({(matched.get(pos) or {}).get('reason')})")
             continue
+        line["erp"] = erp_materials.get(norm_ref(mat), {})
+        line["configuration"] = {k: line["erp"].get(k) for k in ("bore", "stroke", "pressure", "mounting", "certification")}
         cond = valid_condition(erp.get("conditions") or [], mat, scenario)
         price = scale_price(cond, int(q)) if cond else None
         if price is None:
@@ -152,6 +158,10 @@ def compute(inputs: dict) -> dict:
     pct = to_decimal(discount.get("percent")) or D0
     threshold = to_decimal(discount.get("min_order_value"))
     order_value = round_cents(sum((l["pieces"] * l["base"] for l in priced.values()), D0))
+    order_value_complete = len(priced) == len(lines)
+    discount_unknown = threshold is not None and order_value < threshold and not order_value_complete
+    if discount_unknown:
+        issues.append("conditional discount unresolved: incomplete order value; 0% is a partial estimate")
     if threshold is not None and order_value < threshold:
         pct = D0
     d = pct / 100
@@ -159,15 +169,17 @@ def compute(inputs: dict) -> dict:
     # 3. shared setup pools, project bonus (allocations in cents)
     pools: dict[str, dict] = {}
     bonus: dict[str, dict] = {}
-    for pos, l in priced.items():
+    for pos, l in lines.items():
         if l["keys"].get("setup_pool"):
             pools.setdefault(norm_ref(l["keys"]["setup_pool"]), {})[pos] = l
         if l["keys"].get("bonus_plan"):
             bonus.setdefault(norm_ref(l["keys"]["bonus_plan"]), {})[pos] = l
     for key, members in pools.items():
         fee = to_decimal((mail.get("setup_pools") or {}).get(key))
-        weights = {pos: Decimal(l["pieces"]) * (to_decimal(l["erp"].get("allocation_mass_g")) or D0) for pos, l in members.items()}
-        if fee is None or not any(weights.values()):
+        masses = {pos: to_decimal(l.get("erp", {}).get("allocation_mass_g")) for pos, l in members.items()}
+        weights = {pos: Decimal(l["pieces"]) * masses[pos] for pos, l in members.items()
+                   if l.get("pieces") and masses[pos] is not None and masses[pos] >= 0}
+        if fee is None or fee < 0 or len(weights) != len(members) or not any(weights.values()):
             for l in members.values():
                 l["pool_unknown"] = True
             continue
@@ -175,7 +187,7 @@ def compute(inputs: dict) -> dict:
             members[pos]["pool"] = amount
     for key, members in bonus.items():
         bands = (mail.get("project_bonus") or {}).get(key)
-        if not bands:
+        if not bands or any("base" not in l for l in members.values()):
             for l in members.values():
                 l["bonus_unknown"] = True
             continue
@@ -208,8 +220,11 @@ def compute(inputs: dict) -> dict:
             missing.append("shared setup")
         if l.get("bonus_unknown"):
             missing.append("project bonus")
-        if scope is None:
+        if scope not in ("base_only", "base_and_surcharge", "none"):
             missing.append("discount scope")
+            scope = None
+        if discount_unknown:
+            missing.append("conditional discount")
         l["pricing_complete"] = not missing
         if missing:
             issues.append(f"{pos}: estimated final price; unresolved: {', '.join(missing)}")
@@ -268,12 +283,13 @@ def compute(inputs: dict) -> dict:
                         if k in ("unit_price", "base_unit_price", "surcharge_per_unit", "packaging_per_unit", "rebate_total")}
     total = round_cents(sum((Decimal(e["quantity"]) * Decimal(str(e["unit_price"])) for e in positions), D0))
     answer = {"tender_reference": brief.get("tender_reference") or (tender.get("meta") or {}).get("reference") or "",
-              "decision": decision, "currency": "EUR", "discount_percent": float(pct if decision == "bid" else D0),
+              "decision": decision, "currency": "EUR", "discount_percent": float(pct if decision == "bid" or threshold is None else D0),
               "positions": positions if decision == "bid" else [], "total_net": float(total) if decision == "bid" else 0.0}
     if decision == "no_bid":
         issues.append(f"no active material for {blocked}: no_bid")
     return {"answer": answer, "omitted": sorted(set(omitted)) if decision == "bid" else [],
             "total_display": de_number(total if decision == "bid" else D0), "order_value": str(order_value),
+            "order_value_complete": order_value_complete, "discount_resolved": not discount_unknown,
             "lines": [{k: (str(v) if isinstance(v, Decimal) else v) for k, v in l.items() if k != "erp"}
                       for l in lines.values()],
             "issues": issues}
@@ -286,12 +302,18 @@ class BidCalculator(Agent):
     async def run(self) -> None:
         names = ("brief", "tender", "quantities", "requirements", "materials", "erp", "discount", "mail")
         bid = compute({n: self.ctx.board.get(n) for n in names})
-        from swarm.validation import answer_issues
+        from swarm.validation import answer_issues, prepare_answer
+        original_positions = {p["position"] for p in bid["answer"]["positions"]}
+        bid["answer"], repairs = prepare_answer(bid["answer"], self.ctx.task.get("answer_schema"))
+        bid["issues"].extend(repairs)
+        included = {p["position"] for p in bid["answer"]["positions"]}
+        bid["omitted"] = sorted(set(bid["omitted"]) | (original_positions - included))
+        bid["total_display"] = de_number(Decimal(str(bid["answer"]["total_net"])))
         errors = answer_issues(bid["answer"], self.ctx.task.get("answer_schema"))
         if errors:
             bid["issues"].extend(errors)
             self.ctx.board.error(self.name, "; ".join(errors))
         bid["validation_errors"] = errors
         await self.ctx.board.set("bid", bid)
-        await self.ctx.board.set("answer", bid["answer"])
+        await self.ctx.board.set("answer", None if errors else bid["answer"])
         self.log.info("bid: %s omitted=%s issues=%s", bid["answer"], bid["omitted"], bid["issues"])
