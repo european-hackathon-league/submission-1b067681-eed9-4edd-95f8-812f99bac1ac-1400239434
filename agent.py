@@ -33,7 +33,8 @@ async def main() -> int:
     async with async_playwright() as playwright:
         answer = await solve(task, playwright, scored=bool(token))
     if answer is None:
-        print("No answer to submit: build your agent in solve() in agent.py", flush=True)
+        print("Nothing to post: the bid is entered and signed on the website by the submitter agent"
+              if task["submission"].get("kind") == "site" else "No answer to submit", flush=True)
         return 0
     if not token:
         print("Your answer (locally nothing is submitted):", json.dumps(answer, ensure_ascii=False), flush=True)

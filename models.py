@@ -17,6 +17,7 @@ import httpx  # comes with the OpenAI SDK
 from openai import AsyncOpenAI
 
 QWEN_MODEL = "qwen3.8-flash-next"
+NO_THINKING = {"chat_template_kwargs": {"enable_thinking": False}}   # extra_body: skip Qwen's separate reasoning pass
 
 
 def qwen() -> AsyncOpenAI:

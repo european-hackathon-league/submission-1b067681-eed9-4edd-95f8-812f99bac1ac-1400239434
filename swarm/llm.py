@@ -32,9 +32,13 @@ class LLM:
         return self._client
 
     async def chat(self, messages: list[dict], *, tools: list[dict] | None = None, model: str = models.QWEN_MODEL,
-                   **kwargs):
-        """One chat completion; returns the message (`.content`, `.tool_calls`)."""
+                   think: bool = False, **kwargs):
+        """One chat completion; returns the message (`.content`, `.tool_calls`). `think=True` lets Qwen run its
+        separate reasoning pass (slower, more tokens): use it for judgement calls, not for plain extraction."""
         args = dict(model=model, messages=messages, **kwargs)
+        args.setdefault("temperature", 0)
+        if not think and model == models.QWEN_MODEL:
+            args["extra_body"] = {**(args.get("extra_body") or {}), **models.NO_THINKING}
         if tools:
             args["tools"] = tools
         async with self._sem:
@@ -52,6 +56,7 @@ class LLM:
     async def ask_json(self, system: str, user: str, retries: int = 1, **kwargs):
         """Ask for JSON; re-ask once with the parse error if the reply is not valid."""
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+        kwargs.setdefault("response_format", {"type": "json_object"})    # Qwen then always answers with JSON
         for _ in range(retries + 1):
             reply = (await self.chat(messages, **kwargs)).content or ""
             try:

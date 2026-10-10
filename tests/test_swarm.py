@@ -13,7 +13,7 @@ from swarm import orchestrator  # noqa: E402
 from swarm.llm import parse_json  # noqa: E402
 
 TASK = {"brief": "b", "access": [{"siteId": "erp", "url": "http://x", "credentials": {}}],
-        "submission": {"kind": "site"}, "expires_at": None}
+        "submission": {"kind": "api"}, "expires_at": None}
 
 
 class BoardTests(unittest.IsolatedAsyncioTestCase):
@@ -85,6 +85,10 @@ class Orchestration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(order, ["collect", "analyze sees 1", "submit"])
         self.assertEqual(answer, {"ok": True})
 
+    async def test_site_submission_returns_nothing_to_post(self):
+        answer = await self.run_with(make_agents([]), task={**TASK, "submission": {"kind": "site"}})
+        self.assertIsNone(answer)
+
     async def test_only_filter(self):
         order = []
         await self.run_with(make_agents(order), env={"SWARM_ONLY": "Collect,Submit"})
@@ -106,6 +110,24 @@ class BrowserUseWiring(unittest.TestCase):
         self.assertEqual(browser_agent.allowed_domains(task), ["https://a.example", "http://b.example:8080"])
         for flag in ("ANONYMIZED_TELEMETRY", "BROWSER_USE_CLOUD_SYNC", "BROWSER_USE_VERSION_CHECK"):
             self.assertEqual(os.environ[flag], "false")
+
+
+class NoExternalHosts(unittest.TestCase):
+    def test_about_blank_animation_loads_nothing(self):
+        from browser_use.browser.watchdogs.aboutblank_watchdog import AboutBlankWatchdog
+        from swarm import browser_agent
+        self.assertIs(AboutBlankWatchdog._show_dvd_screensaver_loading_animation_cdp,
+                      browser_agent._no_loading_animation)
+        self.assertTrue(issubclass(browser_agent.TextSession, browser_agent.RobustSession))
+
+
+class BrowseTools(unittest.TestCase):
+    def test_our_actions_are_registered_and_helpers_are_not(self):
+        from swarm import browser_agent
+        tools = browser_agent.build_tools(None, "erp", "t", None)
+        names = set(tools.registry.registry.actions)
+        self.assertTrue({"record", "read_page", "fill_form"} <= names)
+        self.assertNotIn("read_one", names)
 
 
 class RealAgentsImport(unittest.TestCase):

@@ -15,7 +15,7 @@ import agents as agents_pkg
 from swarm.agent import REGISTRY, Agent, Phase
 from swarm.blackboard import Blackboard
 from swarm.browser_pool import BrowserPool
-from swarm.context import Context
+from swarm.context import FINAL_MARGIN_S, Context
 from swarm.llm import LLM
 
 log = logging.getLogger("swarm")
@@ -38,7 +38,7 @@ def select(classes: list[type[Agent]], only: str | None) -> list[type[Agent]]:
 
 async def _run_agent(agent: Agent, deadline_bound: bool) -> None:
     try:
-        budget = agent.ctx.time_left() if deadline_bound else agent.ctx.seconds_left() - 60
+        budget = agent.ctx.time_left() if deadline_bound else agent.ctx.seconds_left() - FINAL_MARGIN_S
         await asyncio.wait_for(agent.run(), timeout=max(1.0, budget))
     except asyncio.TimeoutError:
         agent.ctx.board.error(agent.name, "timed out")
@@ -69,4 +69,7 @@ async def run_swarm(task: dict, playwright, scored: bool, env=os.environ):
         if not scored:
             board.dump(BOARD_DUMP)
     log.info("model calls: %d tokens: %s errors: %d", ctx.llm.calls, ctx.llm.tokens, len(board.errors))
+    if (task.get("submission") or {}).get("kind", "api") != "api":
+        log.info("answer (entered on the website): %s", board.get("answer"))
+        return None                      # a "site" submission was entered by the submitter agent
     return board.get("answer")
