@@ -30,10 +30,15 @@ async def main() -> int:
     sites = ", ".join(f"{site.get('siteId')} {site.get('url')}" for site in task["access"])
     print(f"Run {task.get('run_id') or '(local: the scouting logins, nothing counts)'}; websites: {sites}; "
           f"answer via {task['submission']['kind']}", flush=True)
-    async with async_playwright() as playwright:
-        answer = await solve(task, playwright, scored=bool(token))
+    try:
+        async with async_playwright() as playwright:
+            answer = await solve(task, playwright, scored=bool(token))
+    except Exception as error:
+        logging.getLogger("agent").error("Workflow failed: %s", error)
+        return 1
     if answer is None:
-        print("No answer to submit: build your agent in solve() in agent.py", flush=True)
+        print("Portal submission confirmed; no API answer to post"
+              if task["submission"].get("kind") == "site" else "No answer to submit", flush=True)
         return 0
     if not token:
         print("Your answer (locally nothing is submitted):", json.dumps(answer, ensure_ascii=False), flush=True)

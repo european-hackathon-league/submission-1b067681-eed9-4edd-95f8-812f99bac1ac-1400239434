@@ -8,6 +8,7 @@
 - Local run: terminal 1 `atira models proxy`; terminal 2 `atira scout --env | Out-String | Invoke-Expression` then `uv run --no-sync python agent.py`.
 - Test in the real sandbox: `atira test-run . --follow`. Ranked submit: `atira submit . --follow` (only when the team agrees).
 - The `atira` MCP server is available for debugging runs (logs, model calls, timing).
+- Only inspect, save, or reference run data for runs the user identifies as theirs or runs launched for them with a recorded launch receipt. Historical indexes and visible team runs are not proof of ownership. Never collect other teams' run data.
 - Never read, print or commit `.env` or API keys.
 - This repo uses Entire: commit your work with normal `git commit` / `git push` so session
   checkpoints get linked. Do not push `entire/*` shadow branches manually.
