@@ -9,7 +9,7 @@ pages actually do, verified against them. `sites.py` implements the access parts
 |---|---|
 | `/login?returnTo=…`, CSRF form, `input[name="username"]` | The supplier portal also has an unnamed search box in its header — never pick "the first text input". |
 | `/consent?returnTo=…`, necessary cookies only | The supplier portal renders its **logout** form *before* the consent form. Clicking "the first button" signs you out and loops. Scope to `form[action="/consent"]`. |
-| Identifiers padded with zero-width chars | `VG-2027-7093` is `V​G​-​2…` in the DOM. Strip before matching (`sites.plain`). |
+| Identifiers padded with zero-width chars | A reference like `AB-1234-5678` is `A​B​-​1…` in the DOM. Strip before matching (`sites.plain`). |
 | Decoy links | Document rows carry a second "Öffnen" pointing at `/portal-survey`, and a banner offers "Akzeptieren und fortfahren" to the same. Follow the row's real href. |
 | "Ich bin kein Roboter" slider | Gates the ERP notice and the webmail reading pane; disables the real form until satisfied. Supply `sites.unlock`. |
 
