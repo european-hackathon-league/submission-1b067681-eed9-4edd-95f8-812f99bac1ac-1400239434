@@ -1,0 +1,95 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4JY07EN43J8SR6DRFAAY3G0",
+  "session_id": "4a1d7fe8-8814-4679-bb3b-aa602285ca1f",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-10T12:53:30.068211Z",
+  "branch": "main",
+  "checkpoints_count": 2,
+  "save_step_count": 2,
+  "files_touched": [
+    ".gitignore",
+    "CLAUDE.md",
+    "agent.py",
+    "agents/__init__.py",
+    "agents/analyze_discount.py",
+    "agents/analyze_materials.py",
+    "agents/analyze_quantities.py",
+    "agents/analyze_requirements.py",
+    "agents/compute_bid.py",
+    "agents/scrape_erp.py",
+    "agents/scrape_mail.py",
+    "agents/scrape_spec.py",
+    "agents/scrape_tender.py",
+    "agents/submit_bid.py",
+    "agents/verify_evidence.py",
+    "tests/test_kit.py"
+  ],
+  "agent": "Claude Code",
+  "model": "qwen",
+  "turn_id": "a02f73c60dd8",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 0,
+    "api_call_count": 2
+  },
+  "session_metrics": {
+    "turn_count": 2
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-10T12:53:30.0323157Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 5293,
+    "human_modified": 693,
+    "human_removed": 0,
+    "total_committed": 5510,
+    "total_lines_changed": 5988,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 625,
+      "user_lines_removed": 27,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".gitignore": 30,
+        "CLAUDE.md": 79,
+        "swarm/__init__.py": 6,
+        "swarm/agent.py": 36,
+        "swarm/blackboard.py": 80,
+        "swarm/browser_agent.py": 156,
+        "swarm/browser_pool.py": 20,
+        "swarm/context.py": 44,
+        "swarm/llm.py": 62,
+        "swarm/orchestrator.py": 75,
+        "swarm/scraper.py": 37
+      },
+      "user_removed_per_file": {
+        ".gitignore": 27
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 310,
+      "user_lines_removed": 212,
+      "agent_lines_added": 824,
+      "agent_lines_removed": 81,
+      "user_added_per_file": {
+        "agent.py": 1,
+        "tests/test_kit.py": 207,
+        "tests/test_swarm.py": 102
+      },
+      "user_removed_per_file": {
+        "agent.py": 2,
+        "tests/test_kit.py": 210
+      }
+    }
+  ]
+}

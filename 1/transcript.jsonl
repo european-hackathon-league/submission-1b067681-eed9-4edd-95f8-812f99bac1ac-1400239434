@@ -1,0 +1,7 @@
+{"v":1,"agent":"claude-code","cli_version":"0.11.4","type":"user","ts":"2026-10-10T12:18:34.040Z","content":[{"id":"8ea0bb85-71a8-4ffd-9f53-d96fa2e19594","text":"is the model working? can you read the folder structure?"}]}
+{"v":1,"agent":"claude-code","cli_version":"0.11.4","type":"assistant","ts":"2026-10-10T12:18:45.334Z","id":"e8d7f4d0-6eda-4191-b342-c8f3f45b682d","content":[{"text":"There's an issue with the selected model (qwen). It may not exist or you may not have access to it. Run /model to pick a different model.","type":"text"}]}
+{"v":1,"agent":"claude-code","cli_version":"0.11.4","type":"user","ts":"2026-10-10T12:18:59.007Z","content":[{"id":"5af4355a-e363-420b-93c3-ef68d640dd30","text":""}]}
+{"v":1,"agent":"claude-code","cli_version":"0.11.4","type":"user","ts":"2026-10-10T12:18:59.007Z","content":[{"id":"5af4355a-e363-420b-93c3-ef68d640dd30","text":""}]}
+{"v":1,"agent":"claude-code","cli_version":"0.11.4","type":"user","ts":"2026-10-10T12:18:59.007Z","content":[{"id":"5af4355a-e363-420b-93c3-ef68d640dd30","text":""}]}
+{"v":1,"agent":"claude-code","cli_version":"0.11.4","type":"user","ts":"2026-10-10T12:19:05.668Z","content":[{"id":"cd2d5ec9-08f9-4f27-afa6-0a6028dd74cb","text":"are you working?"}]}
+{"v":1,"agent":"claude-code","cli_version":"0.11.4","type":"assistant","ts":"2026-10-10T12:19:08.507Z","id":"0efbcdba-0ed9-4d26-9341-306ff4404f88","content":[{"text":"There's an issue with the selected model (claude-sonnet-5-5). It may not exist or you may not have access to it. Run /model to pick a different model.","type":"text"}]}
