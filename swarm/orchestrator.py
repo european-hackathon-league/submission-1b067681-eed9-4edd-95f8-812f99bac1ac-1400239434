@@ -181,6 +181,7 @@ async def run_swarm(task: dict, playwright, scored: bool, env=os.environ):
                 await asyncio.gather(progress, *background, return_exceptions=True)
             if phase == Phase.COLLECT:
                 timeline.mark("collect end", left=round(ctx.seconds_left()))
+                tl.log_report()          # the platform ends the process right after the submission: report now too
                 await _cancel_background(ctx)
                 # Guard classification tasks are collection work too. None may survive into signing.
                 pending = list(guard._TASKS)
@@ -199,8 +200,9 @@ async def run_swarm(task: dict, playwright, scored: bool, env=os.environ):
         if (task.get("submission") or {}).get("kind", "api") != "api":
             receipt = board.get("submission") or {}
             if not receipt.get("accepted"):
-                raise RuntimeError("No confirmed portal receipt; the run did not verify submission")
-            log.info("portal acceptance confirmed: %s", receipt.get("reference"))
+                raise RuntimeError("No confirmed portal receipt; the run did not verify submission"
+                                   + (f" ({receipt['evidence']})" if receipt.get("evidence") else ""))
+            log.info("portal acceptance confirmed: %s %s", receipt.get("reference"), receipt.get("evidence") or receipt.get("quote", ""))
             return None                      # a "site" submission was entered by the submitter agent
         answer = board.get("answer")
         if answer is None:

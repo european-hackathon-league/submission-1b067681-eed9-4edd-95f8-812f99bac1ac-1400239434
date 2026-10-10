@@ -184,6 +184,7 @@ class BidSubmitter(Agent):
                 await ctx.board.set("submission", receipt)
                 await ctx.board.post(Evidence("submission.receipt", tender_site, receipt, source=receipt["url"], author=self.name))
                 timeline.mark("accepted submission", left=round(ctx.seconds_left()))
+                timeline.current().log_report()        # the run (and this process) ends within seconds
                 return ActionResult(extracted_content="Receipt recorded; finish now", is_done=True, success=True)
 
             @tools.action("Read newest signing TAN from our webmail (call right after requesting TAN).",
@@ -222,7 +223,8 @@ class BidSubmitter(Agent):
                         timeline.mark("TAN received")
                     return text
 
-                timeline.mark("TAN requested", left=round(ctx.seconds_left()))
+                if timeline.mark("TAN requested", left=round(ctx.seconds_left())):
+                    timeline.current().log_report()   # the run ends soon after the TAN is entered: report it now
 
                 if params.new_request and tan_task is not None:
                     tan_task.cancel()
@@ -255,6 +257,18 @@ class BidSubmitter(Agent):
                 await ctx.board.set("submission_attempt", {"summary": out["summary"], "done": out["done"], "steps": out["steps"],
                                                    "attempt": attempt + 1})
                 self.log.info("submission attempt %d finished (done=%s): %s", attempt + 1, out["done"], out["summary"][:500])
+                closed = ctx.shared.get("run_closed")
+                if closed and not (ctx.board.get("submission") or {}).get("accepted"):
+                    # the platform ended the run: the binding submission went through if the wizard reached signing
+                    signed = "TAN requested" in timeline.current().milestones
+                    receipt = {"accepted": signed, "reference": answer.get("tender_reference") or facts.get("tender_reference"),
+                               "evidence": f"platform closed the run with {closed['left']}s left"
+                                           + (" after the TAN was requested" if signed else " before any TAN request")}
+                    await ctx.board.set("submission", receipt)
+                    if signed:
+                        timeline.mark("accepted submission", left=closed["left"], via="platform closed the run")
+                    self.log.warning("run closed by the platform: %s", receipt["evidence"])
+                    break
                 if (ctx.board.get("submission") or {}).get("accepted") or ctx.seconds_left() < FINAL_MARGIN_S + 45:
                     break
                 note = (f"\n\nNOTE: previous attempt stopped early ({out['summary'][:300]!r}). Browser may be mid-wizard: "

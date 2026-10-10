@@ -196,6 +196,17 @@ def allowed_domains(task: dict) -> list[str]:
     return out
 
 
+def note_run_closed(ctx, error: Exception) -> None:
+    """The platform ends a run when the portal accepts the binding submission; from then on every model call answers
+    401 'unknown, finished or expired run token' (run_e54cd26dc7ff4308: the bid went in, then five 'failed'
+    signing retries). With time still on the clock that is the platform's acceptance signal: remember it."""
+    text = str(error)
+    if ctx is not None and "401" in text and "finished or expired run token" in text:
+        if not ctx.shared.get("run_closed"):
+            ctx.shared["run_closed"] = {"left": round(ctx.seconds_left()), "error": text[:160]}
+            log.warning("platform closed the run (model token finished) with %.0fs left", ctx.seconds_left())
+
+
 class QwenChat(ChatOpenAI):
     """ChatOpenAI that switches Qwen's separate reasoning pass off (browser-use already asks for its own short
     thinking in the reply), which roughly halves the time per step, and asks for a JSON object reply (otherwise the
@@ -222,7 +233,11 @@ class QwenChat(ChatOpenAI):
                 queued = timeline.now()
                 async with usage._sem:
                     timeline.add("model.queue", "browse", queued)
-                    reply = await create(*args, **kwargs)
+                    try:
+                        reply = await create(*args, **kwargs)
+                    except Exception as error:
+                        note_run_closed(self._usage_ctx, error)
+                        raise
                 usage.calls += 1
                 if reply.usage:
                     usage.tokens["prompt"] += reply.usage.prompt_tokens or 0

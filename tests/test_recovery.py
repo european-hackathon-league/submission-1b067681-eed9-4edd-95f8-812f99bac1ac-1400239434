@@ -127,5 +127,31 @@ class CrashResume(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(ctx.board.query("spec.page")), 1)            # the first attempt's page survived
 
 
+class RunClosedBySubmission(unittest.IsolatedAsyncioTestCase):
+    async def test_finished_token_after_signing_counts_as_accepted_and_stops_retries(self):
+        from agents import submit_bid
+        from swarm import timeline
+        timeline.reset()
+        ctx = Context(task={"brief": "Submit.", "submission": {"kind": "site"}, "access": [
+            {"siteId": "t", "url": "https://t.example"}, {"siteId": "m", "url": "https://m.example"}]},
+            board=Blackboard(), llm=None, pool=None)
+        ctx.board.results.update({"sites": {"tender": "t", "spec": "t", "erp": "t", "mail": "m"},
+                                  "brief": {"tender_reference": "FIXTURE"}})
+        attempts = []
+
+        async def fake_browse(ctx_, goal, **kwargs):
+            if kwargs["author"].endswith(".mailbox"):
+                return {"summary": "", "done": True, "steps": 1}
+            attempts.append(1)
+            timeline.mark("TAN requested")
+            ba.note_run_closed(ctx, RuntimeError("Error code: 401 - unknown, finished or expired run token"))
+            return {"summary": "", "done": False, "steps": 4}
+        with mock.patch.object(submit_bid, "browse", fake_browse):
+            await submit_bid.BidSubmitter(ctx).run()
+        self.assertEqual(len(attempts), 1)
+        self.assertTrue(ctx.board.get("submission")["accepted"])
+        self.assertIn("accepted submission", timeline.current().milestones)
+
+
 if __name__ == "__main__":
     unittest.main()
