@@ -1,0 +1,1 @@
+Read the challenge website https://ehl-challenge.atira.ai/challenges/rfq. Make short overview of the development direction and the criteria. How do we build an agent-swarm (which frameworks are eligible etc). I want you to complete this information in CLAUDE.md, so future agents know the rules and the way they have to work.
