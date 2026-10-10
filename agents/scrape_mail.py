@@ -1,54 +1,95 @@
 # OWNER: (name)   ROLE: scraper   SITE: webmail (role "mail")
-"""Reads the mails that matter for this tender, saved as page evidence ("mail.page"), in two passes:
-1. the sales director's discount approvals (sets done.mail_core when finished),
-2. the other release mails the brief names (condition rules, technical release, packaging, delivery, setup pools,
-   project bonus, FX, price indices), if time allows (sets done.mail).
+"""Reads the mails that matter for this tender, saved as page evidence ("mail.page").
+
+Every message is read once:
+1. The main tab logs in while the brief is being read.
+2. Index pass (main tab): one search for the exact tender reference alone, in inbox and archive; the model picks the
+   messages about this tender from the result lists and reads them all with read_page(urls=[...]). Then
+   results["done.mail_core"] (the discount analyst starts).
+3. The analyst's extraction says which topics the brief names (authorised senders: discount approval, condition
+   rules, technical release, packaging, ...) have no valid message yet. Only those get a topic search, in parallel
+   tabs (each logs in: this webmail keeps its login per tab). Messages already saved by another agent are not opened
+   again (read_page returns the saved text). Then results["done.mail"].
 The signing TAN is NOT read here: the submitter asks for it when it signs (agents/submit_bid.py)."""
+import asyncio
+
+from agents.analyze_discount import covered_topics, refresh
 from swarm import Phase, register  # noqa: F401
 from swarm.scraper import SiteScraper
 from swarm.sites import site_for
 
+TOPIC_TABS = 3
+
 SEARCH_RULES = (
-    "The mailbox search combines words with AND and shows at most a limited number of hits: search for the exact "
-    "tender reference plus ONE topic word at a time (e.g. '<reference> <topic>'). Search the inbox AND the archive "
-    "folder (also page through results). Look-alike references (same reference with a suffix) and other tenders do "
-    "not count, but drafts, previews and superseded mails look similar: read each candidate message.\n"
-    "For every message whose subject or text names this tender's reference and the topic, read it with read_page and "
-    "topic '<topic> mail' - read several selected messages at once with read_page(urls=[their links]) - (read_page "
-    "also reads collapsed or locked parts of a message, so you do not need to unlock anything). If a reading pane "
-    "shows no message text, open the message's own page (its 'open original'/message link) and read that instead. "
-    "Skip signing-TAN mails.")
+    "Mailbox search combines words with AND and shows limited hits. Look-alike references (same reference with "
+    "suffix) and other tenders do not count; drafts, previews, superseded mails look similar: read each candidate "
+    "message. Read selected messages with ONE read_page(urls=[their links], topic '<topic> mail') (read_page also "
+    "reads collapsed or locked parts, no need to unlock). Reading pane shows no message text -> use message's own "
+    "page link. Skip signing-TAN mails.")
+
+INDEX_JOB = (
+    "Search the exact tender reference ALONE (no other word) in the inbox, then in the archive folder. read_page "
+    "each result list with topic 'mail index' (next_page_link = exact text of next-page link, so all result pages are "
+    "read). Then read_page(urls=[...]) EVERY message in these lists whose subject or preview names exactly this "
+    "reference (no look-alikes with suffix, no other tenders, no signing-TAN mails), topic 'mail messages', up to 12 "
+    "urls per read_page. Then done, listing the subjects read.\n" + SEARCH_RULES)
 
 
 @register
 class MailScraper(SiteScraper):
     role = "mail"
     browser = 3
-    max_steps = 26
-    hints = ("Webmail habits: a cookie wall after login; maintenance popups (close them, do not follow their links); "
-             "an inbox and an archive folder; paged result lists; message headers (sender, date) are in a collapsed "
-             "'envelope/headers' section, which read_page includes.")
+    max_steps = 24
+    hints = ("Webmail habits: cookie wall after login; maintenance popups (close them, never follow their links); "
+             "search may sit behind slider/robot gate: first try ONE fill_form (slider = its maximum, robot checkbox = "
+             "true); still locked -> focus the slider and press End, or click its right end; never loop on evaluate; "
+             "inbox and archive folder; paged result lists; message headers "
+             "(sender, date) in collapsed 'envelope/headers' section, which read_page includes.")
+
+    async def login(self) -> None:
+        try:
+            await self.browse("Log in, accept cookie wall, close popups, open inbox. Do NOT search yet. Then done.",
+                              max_steps=8)
+        except Exception as error:
+            self.log.warning("login browse failed: %s", error)
+
+    def topic_jobs(self, facts: dict, covered: set[str]) -> list[str]:
+        """One search job per brief topic that has no valid message yet (discount approval first)."""
+        senders = dict(facts.get("authorized_senders") or {})
+        senders.setdefault("discount_approval", facts.get("director_sender") or "")
+        words = dict(facts.get("topic_words") or {})
+        words.setdefault("discount_approval", facts.get("discount_topic") or "Rabatt")
+        missing = [t for t in dict.fromkeys([*senders, *words]) if t not in covered and t != "signing_tan"]
+        missing.sort(key=lambda t: t != "discount_approval")
+        jobs = []
+        for topic in missing:
+            word = words.get(topic) or topic.replace("_", " ")
+            sender = senders.get(topic)
+            jobs.append(f"Find mails on topic '{word}' ({topic.replace('_', ' ')}) for this tender"
+                        f"{f' (sender {sender})' if sender else ''}: search '<reference> {word}' in inbox and "
+                        f"archive; read every matching message.\n{SEARCH_RULES}\nThen done.")
+        return jobs
 
     async def run(self) -> None:
         try:
             self.site_id = self.site_id or await site_for(self.ctx, self.role)
-            facts = await self.wait_brief()
-            topics = [t for t in (facts.get("mail_topics") or []) if t]
-            first = (f"Find the discount approvals for this tender (sender: {facts.get('director_sender') or 'the sales director'}). "
-                     f"Topic words to try: {facts.get('discount_topic') or 'Rabatt'}, Rabattfreigabe.\n{SEARCH_RULES}\n"
-                     "Then also do the same for the condition-rule mails (Konditionsregeln) and the technical release "
-                     "mails (Technikfreigabe) if they exist. Finish with done.")
-            out = await self.browse_until_done(first, attempts=2)
+            facts, _ = await asyncio.gather(self.wait_brief(), self.login())
+            facts = self.ctx.board.get("brief") or facts
+            out = await self.browse_until_done(INDEX_JOB, attempts=2)
             await self.ctx.board.set(f"{self.name}.summary", out["summary"])
             await self.ctx.board.set("done.mail_core", True)
-            facts = self.ctx.board.get("brief") or facts          # the brief facts may have arrived meanwhile
-            topics = [t for t in (facts.get("mail_topics") or []) if t]
-            rest =[t for t in topics if t.lower() not in ("rabatt", "rabattfreigabe", "konditionsregeln", "technikfreigabe")]
-            if rest and self.ctx.time_left() > 150:
-                second = (f"Find the release mails for this tender on these topics, one search per topic: {', '.join(rest)}.\n"
-                          f"{SEARCH_RULES}\nFinish with done.")
-                out = await self.browse(second, max_steps=30)
-                await self.ctx.board.set(f"{self.name}.summary2", out["summary"])
+            valid = await refresh(self.ctx)
+            jobs = self.topic_jobs(facts, covered_topics(valid))
+            if jobs and self.ctx.time_left() > 120:
+                self.log.info("topics without a valid message: %d searches", len(jobs))
+                groups = [jobs[i::TOPIC_TABS] for i in range(min(TOPIC_TABS, len(jobs)))]
+                main, rest = groups[0], groups[1:]
+
+                async def in_main() -> None:
+                    for job in main:
+                        await self.browse_until_done(job, attempts=1, max_steps=16)
+                await asyncio.gather(in_main(), self.browse_in_tabs(["\n\n".join(g) for g in rest], attempts=1,
+                                                                    max_steps=22))
         finally:
             await self.ctx.board.set("done.mail_core", True)
             await self.ctx.board.set("done.mail", True)

@@ -47,6 +47,10 @@ EXTRACT_JS = r"""(opts) => {
     if (BLOCK.test(tag)) push('\n');
     if (tag === 'SUMMARY') push('▸ ');
     for (const child of el.childNodes) walk(child, depth);
+    if (tag === 'A' && el.closest('table, ul, ol, nav, [role=list], [role=row], [role=grid]')) {
+      const href = el.getAttribute('href') || '';      // list/table links: the model can open them by URL
+      if (href && !/^(#|javascript:|mailto:)/i.test(href)) push(` <${href}>`);
+    }
     if (role === 'tooltip') push(') ');
     if (BLOCK.test(tag)) push('\n');
   };

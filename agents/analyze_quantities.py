@@ -11,10 +11,13 @@ results["quantities"] = {position: {"quantity": int (in the position's unit), "u
 Rule: tender quantity, overridden by the latest dated clarification that changes it; withdrawn answers are ignored.
 """
 import asyncio
+import logging
 
 from swarm import Agent, Phase, register
 from swarm.extract import extract, page_block, pages
 from swarm.normalize import norm_ref, to_datetime, to_int
+
+log = logging.getLogger("QuantityAnalyzer")
 
 POSITIONS_SHAPE = """{"meta": {"reference": "", "title": "", "deadline": "", "timezone": ""},
  "positions": [{"position": "position number as shown", "short_text": "", "quantity": "as shown", "unit": "",
@@ -56,30 +59,36 @@ def final_quantities(positions: list[dict], clarifications: list[dict]) -> dict:
     return out
 
 
+async def refresh(ctx) -> dict:
+    """Extract the saved tender pages and publish results["tender"] and results["quantities"]; returns the tender."""
+    blocks = [page_block(e) for e in pages(ctx, "tender")]
+    if not blocks:
+        raise RuntimeError("no tender pages were saved")
+    ref = (ctx.board.get("brief") or {}).get("tender_reference", "")
+    pos_out, qa_out = await asyncio.gather(
+        extract(ctx, "List the tender's positions from the bill of quantities / position overview "
+                     "(original tender quantities, not Q&A changes).", POSITIONS_SHAPE, blocks),
+        extract(ctx, f"List EVERY bidder Q&A entry for tender {ref} (all pages). Classify each answer.",
+                QA_SHAPE, blocks, list_key="clarifications"))
+    positions = [p for p in (pos_out or {}).get("positions", []) if p.get("position")]
+    seen, clarifications = set(), []
+    for c in qa_out.get("clarifications", []):
+        key = norm_ref(c.get("number")) or norm_ref(c.get("question"))
+        if key and key not in seen:
+            seen.add(key)
+            clarifications.append(c)
+    tender = {"meta": (pos_out or {}).get("meta", {}), "positions": positions, "clarifications": clarifications}
+    await ctx.board.set("tender", tender)
+    quantities = final_quantities(positions, clarifications)
+    await ctx.board.set("quantities", quantities)
+    log.info("%d positions, %d Q&A, quantities %s", len(positions), len(clarifications), quantities)
+    return tender
+
+
 @register
 class QuantityAnalyzer(Agent):
     phase = Phase.COLLECT        # runs as soon as the tender scraper is done, while the other sites are still read
 
     async def run(self) -> None:
         await self.ctx.board.wait_for(key="done.tender", timeout=max(1.0, self.ctx.time_left()))
-        blocks = [page_block(e) for e in pages(self.ctx, "tender")]
-        if not blocks:
-            raise RuntimeError("no tender pages were saved")
-        ref = (self.ctx.board.get("brief") or {}).get("tender_reference", "")
-        pos_out, qa_out = await asyncio.gather(
-            extract(self.ctx, "List the tender's positions from the bill of quantities / position overview "
-                              "(original tender quantities, not Q&A changes).", POSITIONS_SHAPE, blocks),
-            extract(self.ctx, f"List EVERY bidder Q&A entry for tender {ref} (all pages). Classify each answer.",
-                    QA_SHAPE, blocks, list_key="clarifications"))
-        positions = [p for p in (pos_out or {}).get("positions", []) if p.get("position")]
-        seen, clarifications = set(), []
-        for c in qa_out.get("clarifications", []):
-            key = norm_ref(c.get("number")) or norm_ref(c.get("question"))
-            if key and key not in seen:
-                seen.add(key)
-                clarifications.append(c)
-        tender = {"meta": (pos_out or {}).get("meta", {}), "positions": positions, "clarifications": clarifications}
-        await self.ctx.board.set("tender", tender)
-        quantities = final_quantities(positions, clarifications)
-        await self.ctx.board.set("quantities", quantities)
-        self.log.info("%d positions, %d Q&A, quantities %s", len(positions), len(clarifications), quantities)
+        await refresh(self.ctx)

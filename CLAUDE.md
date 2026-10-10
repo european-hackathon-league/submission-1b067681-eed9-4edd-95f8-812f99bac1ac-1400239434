@@ -105,6 +105,28 @@ atira cancel <run-id>
 With the `atira` MCP server Claude can also fetch logs by time, model calls, where time went, browser screens and
 compare two runs. Ask it "why did run reh_xxx fail?".
 
+## Run data: save it locally, read it locally first (rule for Claude Code)
+
+The platform (atira CLI and `atira` MCP) is often slow (calls over 2 min) or unreachable, and it keeps only part of a
+long log. So every piece of run data that gets pulled is also stored locally in `.swarm/runs/`, and that copy is read
+first.
+
+- **Full logs**: `scripts/pull-run.ps1 <run> [-Follow]` writes `.swarm/runs/<run>-log.md` (the whole log, replaced on
+  each pull). A Monitor that follows a run also writes the whole stream into that file (`... | tee -a <file> | grep ...`),
+  not only the filtered lines.
+- **Everything else** (MCP `get_run`, `run_logs`, `run_llm_calls`, `run_profile`, `diagnose_run`, `compare_runs`, what a
+  screenshot showed): right after pulling, append it to `.swarm/runs/<run>.md` as a section
+  `## <UTC time> - <tool and arguments>` with the result (drop noise, keep scores, errors, timings, key lines).
+- **Index**: `.swarm/runs/INDEX.md`, one line per run: run id, date, what the package changed, outcome (quality, time,
+  answer), main findings. Update it whenever a run is started, ends, or is analysed.
+- **Read first**: before calling the platform, check `.swarm/runs/`; call it only for data that is missing there or
+  outdated (a run still going). If the platform does not answer, work from the local files and say so.
+- **Local runs** (scouting sites, `atira models proxy` running): `scripts/local-run.ps1 -Only "AgentA,AgentB" -Name x`
+  runs headless and writes the whole log to `.swarm/local/<time>-<name>.md`. Use them (in the background) to check a
+  fix before spending a sandbox test run; note the result in `.swarm/runs/INDEX.md` under "Local checks".
+- `.swarm/` is git-ignored and not packaged (`atira test-run . --dry-run` lists it as ignored). The files hold scenario
+  values: never copy anything from them into the package.
+
 ## Submit (ranked, public)
 
 Run a test run first and make sure it finishes with a valid answer. Then agree in the team who submits

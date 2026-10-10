@@ -9,9 +9,9 @@ import re
 
 log = logging.getLogger("extract")
 
-SYSTEM = ("You extract facts from German business web pages for a bid calculation. Copy values exactly as shown "
-          "(keep number strings with their locale marker such as '(en-US)', keep units). Never invent values; use null "
-          "when a value is not on the page. Reply with JSON only, in the requested shape.")
+SYSTEM = ("Extract facts from German business web pages for bid calculation. Copy values exactly as shown (keep "
+          "number strings with locale marker like '(en-US)', keep units). Never invent; value not on page -> null. "
+          "Reply JSON only, in requested shape.")
 CHUNK = 40_000
 
 
@@ -68,7 +68,7 @@ async def extract(ctx, instruction: str, shape: str, blocks: list[str], *, list_
     keys = (list_key,) if isinstance(list_key, str) else tuple(list_key or ())
     if not blocks:
         return {k: [] for k in keys}
-    user_head = f"{instruction}\n\nReply JSON shaped like:\n{shape}\n" + (f"\nContext:\n{context}\n" if context else "")
+    user_head = f"{instruction}\n\nJSON shape:\n{shape}\n" + (f"\nContext:\n{context}\n" if context else "")
     if not keys:
         out = await ctx.llm.ask_json(SYSTEM, user_head + "\nPAGES:\n" + "\n\n".join(blocks)[:4 * CHUNK])
         return out if isinstance(out, dict) else {}

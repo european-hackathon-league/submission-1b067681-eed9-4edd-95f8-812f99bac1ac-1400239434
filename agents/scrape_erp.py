@@ -2,30 +2,46 @@
 """Looks up ERP candidates for the required cylinders, saved as page evidence ("erp.page").
 
 The ERP only lists records for narrow searches, so the work starts once the requirements are known
-(results["requirements"], from agents/analyze_requirements.py): one work item per catalogue group (Kataloggruppe).
-Items sit in a shared queue; ErpScraper (browser 2) works on it, ErpHelper joins on browser 1 once the spec scraper
-has released it and ErpHelperTender on browser 0 after the tender scraper. results["done.erp"] is set when every item
-has been worked on.
+(results["requirements"], from agents/analyze_requirements.py). While waiting, the main tab of browser 2 logs in and
+passes the ERP's gates. Then the work runs as small jobs on up to ERP_TABS tabs of browser 2 (they share the login):
+
+1. search: one job per catalogue group (Kataloggruppe): search it, save the result list. Nothing else.
+2. As soon as a list is saved, the materials on it that fit a requirement (agents/analyze_materials.search_candidates:
+   bore, pressure, mounting, certification equal where shown; stroke equal or covering the usable travel) become three
+   jobs each, run in parallel: record (all tabs incl. status and lead times), prices (condition records with the
+   quantity-scale register open) and stock (storage-location level).
+   A material whose record turns out blocked gets no price/stock job (they wait behind the record jobs).
+
+Small jobs finish inside their step budget (one big job per group used to run out of steps before prices and stock),
+and no step is spent on materials the list already rules out. results["done.erp"] is set when the queue is empty.
 """
 import asyncio
+import itertools
 
+from agents.analyze_materials import extract_erp, merge_materials, search_candidates
 from swarm import Phase, register  # noqa: F401
+from swarm.browser_agent import Tab
 from swarm.context import SUBMIT_RESERVE_S
+from swarm.normalize import norm_ref
 from swarm.scraper import SiteScraper
 from swarm.sites import site_for
 
 ANALYSIS_TIME_S = 120    # what the material matcher needs after the last ERP page
+ERP_TABS = 8             # parallel ERP jobs at most (main tab included)
+MAX_CANDIDATES = 3       # per catalogue group: materials opened at most
 
-HINTS = ("ERP habits: SAP-style transaction codes (the start page / menu lists the transactions for material display, "
-         "stock overview and price conditions); a system notice or access gate after login (copy the displayed number "
-         "exactly - read_page shows numbers drawn on canvas -, confirm, continue; a slider/robot gate can be passed "
-         "with ONE fill_form: slider = its maximum (e.g. 100), robot checkbox = true, then the number and the "
-         "confirmation checkbox, then_click the continue button); a material search help (F4) that only lists "
-         "results for a narrow search term; records with several tabs or registers (basic data, technical data, "
-         "planning/status with lead times; condition header and quantity scales; stock per plant and per storage "
-         "location); status codes explained in a legend or tooltip; a short session timeout - log in again when the "
-         "login page appears. Save steps: once you have seen the links of a record's tabs/registers, read them all "
-         "with ONE read_page(urls=[...]) call, and use the same URL pattern for the next candidate.")
+HINTS = ("ERP habits: SAP-style transaction codes (start page / menu lists transactions for material display, stock "
+         "overview, price conditions); system notice or access gate after login (copy displayed number exactly - "
+         "read_page shows numbers drawn on canvas -, confirm, continue; slider/robot gate passes with ONE fill_form: "
+         "slider = its maximum (e.g. 100), robot checkbox = true, then the number and confirmation checkbox, then_click "
+         "continue button); material search help (F4) lists results only for narrow search term; records with several "
+         "tabs/registers (basic data, technical data, planning/status with lead times; condition header and quantity "
+         "scales; stock per plant and per storage location); status codes explained in legend or tooltip; short session "
+         "timeout - log in again when login page appears. Save steps: once you see the links of a record's "
+         "tabs/registers, read all with ONE read_page(urls=[...]); transactions often take the material number "
+         "directly in their entry field.")
+
+SEARCH, RECORD, PRICES, STOCK = 0, 1, 2, 2       # job priorities: searches first, then records, then prices/stock
 
 
 def work_items(requirements: dict) -> list[dict]:
@@ -40,100 +56,129 @@ def work_items(requirements: dict) -> list[dict]:
     return list(items.values())
 
 
-def item_goal(item: dict) -> str:
-    reqs = "\n".join(f"- requirement {r['ref']}: bore {r['bore']} mm, stroke {r['stroke']} mm"
-                     f"{' (usable travel; the nominal stroke will be longer)' if r.get('stroke_kind') == 'usable' else ''}, "
+def describe(item: dict) -> str:
+    return "\n".join(f"- requirement {r['ref']}: bore {r['bore']} mm, stroke {r['stroke']} mm"
+                     f"{' (usable travel; nominal stroke will be longer)' if r.get('stroke_kind') == 'usable' else ''}, "
                      f"pressure {r['pressure']} bar, mounting {r['mounting']}, certification {r['certification']}"
                      for r in item["requirements"])
+
+
+def search_goal(item: dict) -> str:
     what = f"catalogue group (Kataloggruppe) {item['group']}" if item["group"] else "these technical attributes"
-    return (
-        f"Find our ERP materials for {what}. Required:\n{reqs}\n"
-        "1. Log in if needed and open the material search (search help of the material display transaction). Search "
-        f"for {item['group'] or 'the attributes'} and read_page the result list with topic 'erp search {item['group']}'.\n"
-        "2. Candidates are results whose bore, pressure, mounting and certification match (the stroke may differ "
-        "slightly; keep candidates with any stroke). For each candidate open the material record and read_page EVERY "
-        "tab of it (technical data; planning/status with lead times) with topic 'erp material <number>'.\n"
-        "3. For each candidate whose status is active/released (not blocked): read_page its price conditions with "
-        "the quantity-scale register open (topic 'erp prices <number>'); if there are several condition records, "
-        "pass next_page_link with the exact text of the link to the next condition record so all are read. Then "
-        "read_page its stock: open the storage-location level and the freely usable location so the quantity is "
-        "shown (topic 'erp stock <number>').\n"
-        "Do not stop after the first candidate. Finish with done listing the candidates and their status.")
+    term = item["group"] or "the attributes"
+    return (f"Find our ERP materials for {what}. Required:\n{describe(item)}\n"
+            "1. Log in if needed, open material search (search help of material display transaction).\n"
+            f"2. Search {term}; read_page the result list with topic 'erp search {item['group']}' (all result pages "
+            "via next_page_link).\n"
+            "3. done, listing the materials of the list with their attributes. Do NOT open records (other agents do).")
 
 
-async def _queue(ctx):
-    async with ctx.lock("erp.queue"):
-        if "erp.queue" not in ctx.shared:
-            requirements = await ctx.board.wait_for(key="requirements", timeout=max(1.0, ctx.time_left()))
-            used = {str(p.get("requirement_ref") or "").strip().upper()
-                    for p in ((ctx.board.get("tender") or {}).get("positions") or [])}
-            if used - {""}:                       # only requirements some position refers to
-                requirements = {k: v for k, v in requirements.items() if k.strip().upper() in used} or requirements
-            items = work_items(requirements)
-            queue = asyncio.Queue()
-            for item in items:
-                queue.put_nowait(item)
-            ctx.shared["erp.queue"] = queue
-            ctx.shared["erp.pending"] = len(items)
-            await ctx.board.set("erp.work_items", items)
-        return ctx.shared["erp.queue"]
+def material_goal(job: str, material: str, item: dict) -> str:
+    group = f" (catalogue group {item['group']})" if item.get("group") else ""
+    find = (f"Open material {material}{group}: type the number into the transaction's material field, or search "
+            f"{item.get('group') or material} in its search help and click the row of {material}.")
+    if job == "record":
+        return (f"{find}\nread_page EVERY tab/register of its record (basic data, technical data, planning/status with "
+                f"lead times and status; status legend or tooltip too) with topic 'erp material {material}', in one "
+                "read_page(urls=[...]) when the tabs are links. done with status and lead times.")
+    if job == "prices":
+        return (f"Price conditions of material {material}{group}: open the price condition display transaction for "
+                f"it, open its quantity-scale register so every scale row shows, read_page with topic 'erp prices "
+                f"{material}'; several condition records (validity periods) -> read each one (next_page_link = exact "
+                "text of link to next record). done with validity periods and scale prices.")
+    return (f"Stock of material {material}{group}: open the stock overview transaction for it, open storage-location "
+            f"level so quantity per location and stock type shows, read_page with topic 'erp stock {material}'. done "
+            "with freely usable quantity per location.")
+
+
+async def _items(ctx) -> list[dict]:
+    requirements = await ctx.board.wait_for(key="requirements", timeout=max(1.0, ctx.time_left()))
+    used = {str(p.get("requirement_ref") or "").strip().upper()
+            for p in ((ctx.board.get("tender") or {}).get("positions") or [])}
+    if used - {""}:                       # only requirements some position refers to
+        requirements = {k: v for k, v in requirements.items() if k.strip().upper() in used} or requirements
+    items = work_items(requirements)
+    await ctx.board.set("erp.work_items", items)
+    return items
 
 
 @register
 class ErpScraper(SiteScraper):
     role = "erp"
     browser = 2
-    max_steps = 30
+    max_steps = 16
     hints = HINTS
 
-    async def work(self) -> None:
-        queue = await _queue(self.ctx)
-        while self.ctx.time_left() > ANALYSIS_TIME_S:
-            try:
-                item = queue.get_nowait()
-            except asyncio.QueueEmpty:
-                return
-            try:   # stop browsing early enough for the matcher to extract and match before collecting ends
-                await self.browse_until_done(item_goal(item), attempts=2,
-                                             stop_reserve=SUBMIT_RESERVE_S + ANALYSIS_TIME_S)
-            except Exception as error:
-                self.ctx.board.error(self.name, f"{item.get('group')}: {error}")
-            finally:
-                self.ctx.shared["erp.pending"] -= 1
-                if self.ctx.shared["erp.pending"] <= 0:
-                    await self.ctx.board.set("done.erp", True)
+    def __init__(self, ctx):
+        super().__init__(ctx)
+        self.queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
+        self.pending = 0
+        self.seen: set = set()
+        self._order = itertools.count()
+
+    def add(self, priority: int, job: tuple) -> None:
+        key = job[:2] if job[0] != "search" else ("search", job[1]["group"])
+        if key in self.seen:
+            return
+        self.seen.add(key)
+        self.pending += 1
+        self.queue.put_nowait((priority, next(self._order), job))
+
+    async def blocked(self, material: str) -> bool:
+        """True if the material's record page (read meanwhile) says it is blocked: its prices and stock are not needed."""
+        info = merge_materials(list((await extract_erp(self.ctx)).values())).get(norm_ref(material)) or {}
+        return info.get("is_active") is False
+
+    async def do(self, job: tuple, tab: Tab | None) -> None:
+        stop = SUBMIT_RESERVE_S + ANALYSIS_TIME_S
+        if job[0] == "search":
+            item = job[1]
+            await self.browse_until_done(search_goal(item), attempts=2, tab=tab, max_steps=14, stop_reserve=stop)
+            found = search_candidates(await extract_erp(self.ctx), item)[:MAX_CANDIDATES * len(item["requirements"])]
+            self.log.info("search %s: candidates %s", item["group"], found)
+            for material in found:
+                self.add(RECORD, ("record", material, item))
+                self.add(PRICES, ("prices", material, item))
+                self.add(STOCK, ("stock", material, item))
+            return
+        kind, material, item = job
+        if kind != "record" and await self.blocked(material):
+            self.log.info("%s %s skipped: material blocked", kind, material)
+            return
+        await self.browse_until_done(material_goal(kind, material, item), attempts=2, tab=tab, max_steps=16,
+                                     stop_reserve=stop)
+
+    async def worker(self, tab: Tab | None) -> None:
+        """Takes jobs until the queue is empty and no running job can add more (or time is up)."""
+        try:
+            while self.ctx.time_left() > ANALYSIS_TIME_S:
+                try:
+                    _, _, job = self.queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    if self.pending <= 0:
+                        return
+                    await asyncio.sleep(1.0)
+                    continue
+                try:
+                    await self.do(job, tab)
+                except Exception as error:
+                    self.ctx.board.error(self.name, f"{job[0]} {job[1] if job[0] != 'search' else job[1]['group']}: "
+                                                    f"{error}")
+                finally:
+                    self.pending -= 1
+        finally:
+            if tab is not None:
+                await tab.close()
 
     async def run(self) -> None:
         try:
             self.site_id = self.site_id or await site_for(self.ctx, self.role)
             if self.ctx.board.get("requirements") is None:      # use the wait: log in and pass the ERP's gates now
-                await self.browse("Log in, accept cookies, pass any system notice or access gate, and open the "
-                                  "material search help of the material display transaction. Do NOT search yet. "
-                                  "Finish with done once the search form is open.", max_steps=12)
-            await self.work()
-        finally:                                    # wait for the helper's last item, then release the analysts
-            while self.ctx.shared.get("erp.pending", 0) > 0 and self.ctx.time_left() > ANALYSIS_TIME_S:
-                await asyncio.sleep(2)
+                await self.browse("Log in, accept cookies, pass any system notice or access gate, open material search "
+                                  "help of material display transaction. Do NOT search yet. done once search form open.",
+                                  max_steps=12)
+            for item in await _items(self.ctx):
+                self.add(SEARCH, ("search", item))
+            await asyncio.gather(self.worker(None), *(self.worker(Tab(self.browser)) for _ in range(ERP_TABS - 1)))
+        finally:
             await self.ctx.board.set("done.erp", True)
-
-
-@register
-class ErpHelper(ErpScraper):
-    """Second ERP worker on browser 1, after the spec scraper is done with it."""
-    browser = 1
-    after = "done.spec"
-
-    async def run(self) -> None:
-        try:
-            await self.ctx.board.wait_for(key=self.after, timeout=max(1.0, self.ctx.time_left()))
-            self.site_id = self.site_id or await site_for(self.ctx, self.role)
-            await self.work()
-        except TimeoutError:
-            return
-
-
-@register
-class ErpHelperTender(ErpHelper):
-    """Third ERP worker on browser 0, after the tender scraper is done with it (the submitter needs it only later)."""
-    browser = 0
-    after = "done.tender"

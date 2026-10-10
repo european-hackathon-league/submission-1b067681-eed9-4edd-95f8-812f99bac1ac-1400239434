@@ -4,7 +4,7 @@
 results["brief"] = {
   "tender_reference": str, "tender_title": str, "buyer": str, "scenario_date": ISO str, "deadline": str,
   "bidder_company": str, "bidder_vat_id": str, "director_sender": str (sender local part),
-  "currency": str
+  "currency": str, "authorized_senders": {topic: local part}, "mail_topics": [word], "topic_words": {topic: word}
 }
 The reference is only accepted if it literally occurs in the brief (no model invention).
 """
@@ -20,7 +20,8 @@ SHAPE = """{"tender_reference": "", "tender_title": "", "buyer": "", "scenario_d
 "discount_topic": "German word for the discount approval topic",
 "authorized_senders": {"<one of: discount_approval, condition_rules, technical_release, packaging_tariffs,
   delivery_commitments, setup_pools, project_bonus, fx_fixing, price_indices>": "<sender local part the brief names for it>"},
-"mail_topics": ["every mail subject/topic word the brief says carries release data (e.g. condition rules, price indices)"]}"""
+"mail_topics": ["every mail subject/topic word the brief says carries release data (e.g. condition rules, price indices)"],
+"topic_words": {"<topic key as in authorized_senders>": "the word the brief uses for that topic (mail search term)"}}"""
 
 
 @register
@@ -30,7 +31,7 @@ class BriefReader(Agent):
     async def run(self) -> None:
         roles = asyncio.create_task(resolve_roles(self.ctx))     # in parallel with the brief call
         facts = await self.ctx.llm.ask_json(
-            "Extract key facts from this task brief. Copy values exactly. Reply JSON only.",
+            "Extract key facts from task brief. Copy values exactly. Reply JSON only.",
             f"Shape:\n{SHAPE}\n\nBRIEF:\n{self.ctx.brief}")
         facts = {k: (v.strip() if isinstance(v, str) else v) for k, v in (facts or {}).items()}
         if norm_ref(facts.get("tender_reference")) not in norm_ref(self.ctx.brief):

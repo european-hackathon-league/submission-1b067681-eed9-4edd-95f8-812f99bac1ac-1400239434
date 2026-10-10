@@ -195,6 +195,50 @@ class Matching(unittest.TestCase):
                       "certification": "C-1", "kataloggruppe": "G", "is_active": True}}
         self.assertEqual(match_positions(tender, reqs, mats, {}, "")["1"]["material"], "B")
 
+    def test_attribute_not_shown_is_unverified_not_a_mismatch(self):
+        tender = {"positions": [{"position": "1", "requirement_ref": "Z"}]}
+        reqs = {"Z": {"bore": "50", "stroke": "300", "pressure": "160", "mounting": "Flansch", "certification": "C-1",
+                      "kataloggruppe": "G"}}
+        mats = {"A": {"material": "A", "bore": "50", "stroke": "300", "pressure": "160", "mounting": "Flansch",
+                      "kataloggruppe": "G", "is_active": True},                       # certification not shown
+                "B": {"material": "B", "bore": "50", "stroke": "300", "pressure": "160", "mounting": "Flansch",
+                      "certification": "C-2", "kataloggruppe": "G", "is_active": True}}  # contradicts
+        out = match_positions(tender, reqs, mats, {}, "")["1"]
+        self.assertEqual((out["material"], out["unverified"]), ("A", ["certification"]))
+
+    def test_usable_travel_without_reserve_takes_shortest_covering_stroke(self):
+        tender = {"positions": [{"position": "1", "requirement_ref": "Z"}]}
+        reqs = {"Z": {"bore": "50", "stroke": "300", "stroke_kind": "usable", "pressure": "160", "mounting": "F",
+                      "certification": "keine", "kataloggruppe": "G"}}
+        base = {"bore": "50", "pressure": "160", "mounting": "F", "certification": "keine", "kataloggruppe": "G",
+                "is_active": True}
+        mats = {"S": {"material": "S", "stroke": "290", **base}, "M": {"material": "M", "stroke": "320", **base},
+                "L": {"material": "L", "stroke": "360", **base}}
+        self.assertEqual(match_positions(tender, reqs, mats, {}, "")["1"]["material"], "M")
+        mail = {"technical_release": {"K": {"revision": "R", "reserve_mm_per_end": "30"}}}
+        reqs["Z"]["reserve_key"] = "K"
+        self.assertEqual(match_positions(tender, reqs, mats, mail, "R")["1"]["material"], "L")
+
+    def test_record_status_beats_list_and_disagreement_is_unknown(self):
+        from agents.analyze_materials import merge_materials
+        rows = lambda *r: [dict(material="A", **x) for x in r]  # noqa: E731
+        merged = merge_materials([{"kind": "list", "materials": rows({"bore": "50", "is_active": False})},
+                                  {"kind": "record", "materials": rows({"stroke": "300", "is_active": True})}])
+        self.assertEqual((merged["A"]["is_active"], merged["A"]["bore"], merged["A"]["stroke"]), (True, "50", "300"))
+        merged = merge_materials([{"kind": "record", "materials": rows({"is_active": True})},
+                                  {"kind": "record", "materials": rows({"is_active": False})}])
+        self.assertIsNone(merged["A"]["is_active"])
+
+    def test_search_candidates_drop_what_the_list_rules_out(self):
+        from agents.analyze_materials import search_candidates
+        item = {"group": "G", "requirements": [{"bore": "50", "stroke": "300", "stroke_kind": "nominal",
+                                                 "pressure": "160", "mounting": "F", "certification": "keine"}]}
+        page = {"kind": "list", "materials": [
+            {"material": "A", "kataloggruppe": "G", "bore": "50", "stroke": "300", "pressure": "160", "mounting": "F"},
+            {"material": "B", "kataloggruppe": "G", "bore": "50", "stroke": "300", "pressure": "250", "mounting": "F"},
+            {"material": "C", "kataloggruppe": "H", "bore": "50", "stroke": "300", "pressure": "160", "mounting": "F"}]}
+        self.assertEqual(search_candidates({"p": page}, item), ["A"])
+
     def test_no_certification_spellings_match(self):
         from agents.analyze_materials import text_equal
         self.assertTrue(text_equal("Keine gefordert", "keine"))

@@ -11,10 +11,13 @@ while the spec scraper finishes), then from all spec pages, then with amendments
 results["requirements_final"] = True.
 """
 import asyncio
+import logging
 
 from swarm import Agent, Phase, register
 from swarm.extract import extract, page_block, pages
 from swarm.normalize import norm_ref, to_datetime, to_decimal
+
+log = logging.getLogger("RequirementAnalyzer")
 
 SHAPE = """{"revisions": [{"revision": "", "date": "ISO date (mind the stated MM/DD or DD/MM order)", "status": "as shown",
                "is_current": true/false}],
@@ -54,6 +57,52 @@ def apply_amendments(requirements: dict, current: str, clarifications: list[dict
     return requirements
 
 
+async def analyse(ctx) -> tuple[list, str, dict]:
+    blocks = [page_block(e) for e in pages(ctx, "spec")]
+    out = await extract(ctx, "Extract specification's revision list and requirement rows (every revision whose "
+                             "rows are on the pages). Revision current only if its status says so (e.g. "
+                             "gültig/aktuell/current), never if superseded (ersetzt).",
+                        SHAPE, blocks, list_key=("requirements", "revisions"))
+    revisions = out.get("revisions") or []
+    flagged = [r for r in revisions if r.get("is_current") is True]
+    flagged.sort(key=lambda r: to_datetime(r.get("date")) or to_datetime("1970-01-01"))
+    current = flagged[-1]["revision"] if flagged else ""
+    rows = out.get("requirements") or []
+    if current:
+        rows = [r for r in rows if norm_ref(r.get("revision")) == norm_ref(current)] or rows
+    requirements = {}
+    for r in rows:
+        ref = str(r.get("ref") or "").strip()
+        if not ref:
+            continue
+        entry = {k: r.get(k) for k in ("mounting", "certification", "kataloggruppe", "reserve_key", "original_text")}
+        entry |= {k: plain_number(r.get(k)) for k in NUMERIC}
+        entry["stroke_kind"] = "usable" if "usable" in str(r.get("stroke_kind") or "").lower() else "nominal"
+        entry["pieces_per_set"] = plain_number(r.get("pieces_per_set")) if r.get("pieces_per_set") else None
+        entry["revision"] = r.get("revision") or current
+        requirements.setdefault(ref, entry)
+    return revisions, current, requirements
+
+
+async def refresh(ctx, wait_tender: float = 0) -> dict:
+    """Analyse the saved spec pages, apply the tender's amendments; publishes spec, requirements,
+    requirements_final. `wait_tender`: seconds to wait for the tender analysis (amendments come from its Q&A)."""
+    if not pages(ctx, "spec"):
+        raise RuntimeError("no specification pages were saved")
+    revisions, current, requirements = await analyse(ctx)
+    await ctx.board.set("spec", {"revisions": revisions, "current": current})
+    await ctx.board.set("requirements", requirements)
+    log.info("current revision %s, requirements %s", current, list(requirements))
+    tender = ctx.board.get("tender")
+    if tender is None and wait_tender > 0:
+        tender = await ctx.board.wait_for(key="tender", timeout=wait_tender)
+    amended = apply_amendments({k: dict(v) for k, v in requirements.items()}, current,
+                               (tender or {}).get("clarifications") or [])
+    await ctx.board.set("requirements", amended)
+    await ctx.board.set("requirements_final", True)
+    return amended
+
+
 @register
 class RequirementAnalyzer(Agent):
     phase = Phase.COLLECT
@@ -65,17 +114,7 @@ class RequirementAnalyzer(Agent):
         finally:
             if not early.done():
                 early.cancel()
-        if not pages(self.ctx, "spec"):
-            raise RuntimeError("no specification pages were saved")
-        revisions, current, requirements = await self.analyse()
-        await self.ctx.board.set("spec", {"revisions": revisions, "current": current})
-        await self.ctx.board.set("requirements", requirements)
-        self.log.info("current revision %s, requirements %s", current, list(requirements))
-        tender = await self.ctx.board.wait_for(key="tender", timeout=max(1.0, self.ctx.time_left()))
-        amended = apply_amendments({k: dict(v) for k, v in requirements.items()}, current,
-                                   (tender or {}).get("clarifications") or [])
-        await self.ctx.board.set("requirements", amended)
-        await self.ctx.board.set("requirements_final", True)
+        await refresh(self.ctx, wait_tender=max(1.0, self.ctx.time_left()))
 
     async def early(self) -> None:
         """As soon as a requirement table is saved, publish a first version so the ERP search can start while the
@@ -83,36 +122,10 @@ class RequirementAnalyzer(Agent):
         while True:
             topics = " ".join(str(e.data.get("topic", "")).lower() for e in pages(self.ctx, "spec"))
             if "requirement" in topics or "anforderung" in topics:
-                revisions, current, requirements = await self.analyse()
+                revisions, current, requirements = await analyse(self.ctx)
                 if requirements and self.ctx.board.get("requirements") is None:
                     await self.ctx.board.set("spec", {"revisions": revisions, "current": current})
                     await self.ctx.board.set("requirements", requirements)
                     self.log.info("early requirements (%s): %s", current, list(requirements))
                 return
             await asyncio.sleep(3)
-
-    async def analyse(self) -> tuple[list, str, dict]:
-        blocks = [page_block(e) for e in pages(self.ctx, "spec")]
-        out = await extract(self.ctx, "Extract the specification's revision list and the requirement rows (for every "
-                                      "revision whose rows are on the pages). A revision is current only if its status "
-                                      "says so (e.g. gültig/aktuell/current), never if superseded (ersetzt).",
-                            SHAPE, blocks, list_key=("requirements", "revisions"))
-        revisions = out.get("revisions") or []
-        flagged = [r for r in revisions if r.get("is_current") is True]
-        flagged.sort(key=lambda r: to_datetime(r.get("date")) or to_datetime("1970-01-01"))
-        current = flagged[-1]["revision"] if flagged else ""
-        rows = out.get("requirements") or []
-        if current:
-            rows = [r for r in rows if norm_ref(r.get("revision")) == norm_ref(current)] or rows
-        requirements = {}
-        for r in rows:
-            ref = str(r.get("ref") or "").strip()
-            if not ref:
-                continue
-            entry = {k: r.get(k) for k in ("mounting", "certification", "kataloggruppe", "reserve_key", "original_text")}
-            entry |= {k: plain_number(r.get(k)) for k in NUMERIC}
-            entry["stroke_kind"] = "usable" if "usable" in str(r.get("stroke_kind") or "").lower() else "nominal"
-            entry["pieces_per_set"] = plain_number(r.get("pieces_per_set")) if r.get("pieces_per_set") else None
-            entry["revision"] = r.get("revision") or current
-            requirements.setdefault(ref, entry)
-        return revisions, current, requirements

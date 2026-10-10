@@ -14,6 +14,7 @@ results["mail"] = {
 }  (numbers as strings)
 """
 import asyncio
+import logging
 from datetime import datetime
 
 from swarm import Agent, Phase, register
@@ -21,16 +22,17 @@ from swarm.extract import extract, page_block, pages
 from swarm.normalize import norm_ref, to_datetime, to_decimal
 
 EPOCH = to_datetime("1970-01-01T00:00:00Z")
+log = logging.getLogger("DiscountAnalyzer")
 
 TOPICS = ["discount_approval", "condition_rules", "technical_release", "packaging_tariffs", "delivery_commitments",
           "setup_pools", "project_bonus", "fx_fixing", "price_indices", "signing_tan", "other"]
 
-SHAPE = """{"mailbox_owner": "our own mailbox address (logged-in user / recipient) if shown",
+SHAPE = """{"mailbox_owner": "our mailbox address (logged-in user / recipient) if shown",
  "messages": [{"subject": "", "sender": "full sender address", "date": "UTC ISO timestamp", "folder": "",
-  "reference": "tender reference exactly as named in the message (keep suffixes)",
+  "reference": "tender reference exactly as in message (keep suffixes)",
   "topic": "one of: """ + ", ".join(TOPICS) + """",
-  "is_draft": "true only if this message itself is an unsent draft/local preview",
-  "valid_from_message_date": "true if the message says it applies only from its own date on",
+  "is_draft": "true only if this message itself is unsent draft/local preview",
+  "valid_from_message_date": "true if message says it applies only from its own date on",
   "discount_percent": null, "min_order_value_eur": null,
   "entries": [{"key": "key/code as written", "revision": null, "reserve_mm_per_end": null, "eur_per_carton": null,
      "material": null, "weeks": null, "max_total_pieces": null, "pool_fee_eur": null,
@@ -38,11 +40,11 @@ SHAPE = """{"mailbox_owner": "our own mailbox address (logged-in user / recipien
      "discount_scope": "for condition rules: base_only | base_and_surcharge | none", "index": null,
      "eur_per_kg": null, "valid_from": null, "valid_to": null}]}]}"""
 
-INSTRUCTION = ("Extract every mail MESSAGE on these pages (ignore result lists without message text). Values come from "
-               "the original message text, NOT from a local preview/unsent draft section. Convert numbers to JSON "
-               "numbers using the number format the message states (e.g. decimal point). For condition rules decide "
-               "per key from the prose whether the order discount applies to the base price only, to base price and "
-               "the weight-based material surcharge, or to nothing.")
+INSTRUCTION = ("Extract every mail MESSAGE on these pages (ignore result lists without message text). Values from "
+               "original message text, NOT from local preview/unsent draft section. Numbers -> JSON numbers using the "
+               "number format the message states (e.g. decimal point). Condition rules: decide per key from prose "
+               "whether order discount applies to base price only, to base price + weight-based material surcharge, "
+               "or to nothing.")
 
 
 def _local(addr) -> str:
@@ -109,50 +111,60 @@ def summarise(messages: list[dict], scenario: datetime | None) -> dict:
     return mail
 
 
+async def extract_new(ctx) -> dict:
+    """Extract the mail pages not extracted yet (one call per page, cached in ctx.shared); returns the cache."""
+    cache = ctx.shared.setdefault("mail.extracted", {})
+    async with ctx.lock("mail.extract"):
+        todo = [e for e in pages(ctx, "mail") if (e.data.get("url"), hash(e.data.get("text", ""))) not in cache]
+        replies = await asyncio.gather(*(extract(ctx, INSTRUCTION, SHAPE, [page_block(e)]) for e in todo),
+                                       return_exceptions=True)
+        for e, r in zip(todo, replies):
+            cache[(e.data.get("url"), hash(e.data.get("text", "")))] = r if isinstance(r, dict) else {}
+    return cache
+
+
+async def refresh(ctx) -> list[dict]:
+    """Extract new mail pages and publish discount, mail rules and messages again; returns the valid messages."""
+    cache = await extract_new(ctx)
+    facts = ctx.board.get("brief") or {}
+    ref, scenario = facts.get("tender_reference", ""), to_datetime(facts.get("scenario_date"))
+    senders = {k: v for k, v in (facts.get("authorized_senders") or {}).items() if v}
+    if facts.get("director_sender"):
+        senders.setdefault("discount_approval", facts["director_sender"])
+    owners = [r.get("mailbox_owner") for r in cache.values() if r.get("mailbox_owner")]
+    domain = _domain(owners[0]) if owners else ""
+    messages = [m for r in cache.values() for m in (r.get("messages") or [])]
+    unique = {(m.get("subject"), m.get("date"), m.get("sender")): m for m in messages}
+    valid = valid_messages(list(unique.values()), ref, scenario, senders, domain)
+    approvals = [m for m in valid if m.get("topic") == "discount_approval" and m.get("discount_percent") is not None]
+    if approvals:
+        a = approvals[-1]
+        discount = {"percent": format(to_decimal(a["discount_percent"]).normalize(), "f"),
+                    "min_order_value": (format(to_decimal(a["min_order_value_eur"]).normalize(), "f")
+                                        if a.get("min_order_value_eur") not in (None, "") else None),
+                    "source": f"{a.get('subject')} {a.get('date')} {a.get('sender')}"}
+    else:
+        discount = {"percent": "0", "min_order_value": None, "source": "no valid approval found"}
+    await ctx.board.set("mail_messages", list(unique.values()))
+    if owners:
+        await ctx.board.set("mailbox", owners[0])
+    await ctx.board.set("discount", discount)
+    await ctx.board.set("mail", summarise(valid, scenario))
+    log.info("discount %s; %d/%d valid messages", discount, len(valid), len(unique))
+    return valid
+
+
+def covered_topics(valid: list[dict]) -> set[str]:
+    return {m.get("topic") for m in valid if m.get("topic")}
+
+
 @register
 class DiscountAnalyzer(Agent):
     phase = Phase.COLLECT
 
-    async def extract_new(self, cache: dict) -> None:
-        todo = [e for e in pages(self.ctx, "mail") if (e.data.get("url"), hash(e.data.get("text", ""))) not in cache]
-        replies = await asyncio.gather(*(extract(self.ctx, INSTRUCTION, SHAPE, [page_block(e)]) for e in todo),
-                                       return_exceptions=True)
-        for e, r in zip(todo, replies):
-            cache[(e.data.get("url"), hash(e.data.get("text", "")))] = r if isinstance(r, dict) else {}
-
-    async def publish(self, cache: dict) -> None:
-        facts = self.ctx.board.get("brief") or {}
-        ref, scenario = facts.get("tender_reference", ""), to_datetime(facts.get("scenario_date"))
-        senders = {k: v for k, v in (facts.get("authorized_senders") or {}).items() if v}
-        if facts.get("director_sender"):
-            senders.setdefault("discount_approval", facts["director_sender"])
-        owners = [r.get("mailbox_owner") for r in cache.values() if r.get("mailbox_owner")]
-        domain = _domain(owners[0]) if owners else ""
-        messages = [m for r in cache.values() for m in (r.get("messages") or [])]
-        unique = {(m.get("subject"), m.get("date"), m.get("sender")): m for m in messages}
-        valid = valid_messages(list(unique.values()), ref, scenario, senders, domain)
-        approvals = [m for m in valid if m.get("topic") == "discount_approval" and m.get("discount_percent") is not None]
-        if approvals:
-            a = approvals[-1]
-            discount = {"percent": format(to_decimal(a["discount_percent"]).normalize(), "f"),
-                        "min_order_value": (format(to_decimal(a["min_order_value_eur"]).normalize(), "f")
-                                            if a.get("min_order_value_eur") not in (None, "") else None),
-                        "source": f"{a.get('subject')} {a.get('date')} {a.get('sender')}"}
-        else:
-            discount = {"percent": "0", "min_order_value": None, "source": "no valid approval found"}
-        await self.ctx.board.set("mail_messages", list(unique.values()))
-        if owners:
-            await self.ctx.board.set("mailbox", owners[0])
-        await self.ctx.board.set("discount", discount)
-        await self.ctx.board.set("mail", summarise(valid, scenario))
-        self.log.info("discount %s; %d/%d valid messages", discount, len(valid), len(unique))
-
     async def run(self) -> None:
-        cache: dict = {}
         await self.ctx.board.wait_for(key="done.mail_core", timeout=max(1.0, self.ctx.time_left()))
-        await self.extract_new(cache)
-        await self.publish(cache)
+        await refresh(self.ctx)
         await self.ctx.board.wait_for(key="done.mail", timeout=max(1.0, self.ctx.time_left()))
-        await self.extract_new(cache)
-        await self.publish(cache)
+        await refresh(self.ctx)
         await self.ctx.board.set("mail_final", True)

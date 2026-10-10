@@ -8,9 +8,10 @@ import asyncio
 
 _FIND = r"""
   const norm = s => (s || '').replace(/[​-‍⁠﻿]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
-  const docs = [document];
-  for (let i = 0; i < docs.length && i < 20; i++) {
+  const docs = [document];          // the page, same-origin iframes and open shadow roots (web-component forms)
+  for (let i = 0; i < docs.length && i < 200; i++) {
     for (const f of docs[i].querySelectorAll('iframe')) { try { if (f.contentDocument) docs.push(f.contentDocument); } catch (e) {} }
+    for (const el of docs[i].querySelectorAll('*')) { if (el.shadowRoot) docs.push(el.shadowRoot); }
   }
   const visible = el => !el.closest('[hidden],[aria-hidden=true]') && !(el.closest('dialog') && !el.closest('dialog').open);
 """
@@ -20,7 +21,7 @@ SET_JS = r"""(args) => {
 """ + _FIND + r"""
   const labelOf = c => {
     let t = '';
-    const doc = c.ownerDocument;
+    const doc = c.getRootNode();
     if (c.id) { const l = doc.querySelector(`label[for="${CSS.escape(c.id)}"]`); if (l) t = l.textContent; }
     if (!t && c.closest('label')) {
       const clone = c.closest('label').cloneNode(true);
@@ -34,10 +35,37 @@ SET_JS = r"""(args) => {
   const w = norm(want);
   const c = controls.find(c => norm(c.name) === w) || controls.find(c => norm(labelOf(c)) === w)
     || controls.find(c => norm(labelOf(c)).startsWith(w)) || controls.find(c => w && norm(labelOf(c)).includes(w));
-  if (!c) return {status: 'missing', fields: controls.map(c => labelOf(c).trim() || c.name).filter(Boolean).slice(0, 30)};
+  if (!c) {
+    // no input with that label: a custom control (toggle/switch/checkbox built from elements, often in shadow DOM)
+    // whose own text names it. "true"/"false": click it when its state differs; anything else: click it once.
+    const tsel = '[role=checkbox],[role=switch],[role=radio],[role=option],[role=button],[role=group],[aria-pressed],[aria-checked],[tabindex],label,button,summary';
+    const textOf = e => norm(e.getAttribute('aria-label') || e.innerText || e.textContent);
+    const toggles = docs.flatMap(d => [...d.querySelectorAll(tsel)]).filter(visible).filter(e => textOf(e));
+    const near = toggles.filter(e => textOf(e) === w || textOf(e).startsWith(w) || (w && textOf(e).includes(w) && textOf(e).length < w.length + 60));
+    near.sort((a, b) => textOf(a).length - textOf(b).length);       // the tightest element that carries the text
+    const t = near[0];
+    if (t) {
+      const isOn = e => ['true', 'mixed'].includes(e.getAttribute('aria-checked')) || e.getAttribute('aria-pressed') === 'true'
+        || (e.querySelector && !!e.querySelector('input[type=checkbox]:checked'))
+        || /(^|\s)(on|active|checked|selected|is-checked)(\s|$)/i.test(typeof e.className === 'string' ? e.className : '');
+      const bool = /^(true|1|yes|ja|x|on|checked|false|0|no|nein|off)$/i.test(String(value).trim());
+      const want = /^(true|1|yes|ja|x|on|checked)$/i.test(String(value).trim());
+      if (!bool || isOn(t) !== want) t.click();
+      return {status: 'ok', name: textOf(t).slice(0, 60), set: bool ? (isOn(t) ? 'on' : 'clicked') : 'clicked'};
+    }
+    return {status: 'missing', fields: controls.map(c => labelOf(c).trim() || c.name).filter(Boolean).slice(0, 30)};
+  }
   if (c.disabled) return {status: 'disabled', name: c.name};
   const v = norm(value);
   const num = s => { const n = parseFloat(String(s).replace(/[^0-9.,-]/g, '').replace(',', '.')); return isNaN(n) ? null : n; };
+  // the prototype's setter: frameworks that track the value property (React, Lit) see the change; a plain
+  // assignment to c.value is overwritten by them on the next render
+  const setValue = (el, v) => {
+    const win = (el.ownerDocument && el.ownerDocument.defaultView) || window;
+    const proto = el.tagName === 'TEXTAREA' ? win.HTMLTextAreaElement.prototype : win.HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, 'value');
+    if (setter && setter.set) setter.set.call(el, v); else el.value = v;
+  };
   if (c.tagName === 'SELECT') {
     const opts = [...c.options];
     const o = opts.find(o => norm(o.value) === v) || opts.find(o => norm(o.text) === v)
@@ -51,8 +79,10 @@ SET_JS = r"""(args) => {
     return {status: 'ok', name: r.name, set: labelOf(r).trim()};
   } else if (c.type === 'checkbox') {
     c.checked = /^(true|1|yes|ja|x|on|checked)$/i.test(String(value).trim());
+  } else if (c.type === 'range') {     // 'max' -> its maximum
+    c.focus(); setValue(c, num(value) === null ? (c.max || '100') : String(num(value)));
   } else {
-    c.focus(); c.value = value;
+    c.focus(); setValue(c, value);
   }
   c.dispatchEvent(new Event('input', {bubbles: true}));
   c.dispatchEvent(new Event('change', {bubbles: true}));
@@ -75,7 +105,35 @@ CLICK_JS = r"""(label) => {
   return 'missing';
 }"""
 
+# Runs in the page: (label) => {x0, x1, y} | null. Where to drag the slider named `label` (range input or role=slider)
+# with real mouse events, in top-page viewport coordinates (iframe offsets added). Some pages only accept a slider
+# moved by a trusted (user) gesture, and reset a value set by script.
+SLIDER_JS = r"""(label) => {
+""" + _FIND + r"""
+  const w = norm(label);
+  const textOf = c => {
+    let t = c.getAttribute('aria-label') || '';
+    if (c.labels && c.labels[0]) t = c.labels[0].innerText + ' ' + t;
+    else if (c.closest('label')) t = c.closest('label').innerText + ' ' + t;
+    return norm(t + ' ' + (c.name || ''));
+  };
+  const sliders = docs.flatMap(d => [...d.querySelectorAll('input[type=range], [role=slider]')]).filter(visible);
+  const s = sliders.find(c => w && textOf(c).includes(w)) || sliders.find(c => w && w.includes(norm(c.getAttribute('aria-label'))) && c.getAttribute('aria-label'))
+    || (sliders.length === 1 && /slider|regler|schieb|zieh|drag|entsperr|unlock/.test(w) ? sliders[0] : null);
+  if (!s) return null;
+  s.scrollIntoView({block: 'center'});
+  const track = s.getAttribute('role') === 'slider' && s.parentElement ? s.parentElement.getBoundingClientRect() : s.getBoundingClientRect();
+  const r = s.getBoundingClientRect();
+  let dx = 0, dy = 0, win = s.ownerDocument.defaultView;
+  while (win && win.frameElement) { const f = win.frameElement.getBoundingClientRect(); dx += f.left; dy += f.top; win = win.parent; }
+  return {x0: r.left + Math.min(6, r.width / 2) + dx, x1: track.right - 2 + dx, y: r.top + r.height / 2 + dy};
+}"""
+
 READY_JS = "() => document.readyState"
+
+
+def is_max(value: str) -> bool:
+    return str(value).strip().lower() in ("max", "maximum", "100", "end", "ende", "rechts", "right")
 
 
 async def _wait_loaded(evaluate, settle: float = 0.8) -> None:

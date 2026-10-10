@@ -67,30 +67,29 @@ class BidSubmitter(Agent):
         started = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime())
         decision = answer.get("decision", "bid")
         goal = (
-            f"Website (tender portal): {site['url']}\nLogin: username {creds.get('username')!r}, password {creds.get('password')!r}\n\n"
-            f"SUBMISSION INSTRUCTIONS FROM THE BRIEF:\n{brief_section(ctx.brief, 'Submission', 'Abgabe') or ctx.brief[-2500:]}\n\n"
+            f"Site (tender portal): {site['url']}\nLogin: username {creds.get('username')!r}, password {creds.get('password')!r}\n\n"
+            f"SUBMISSION INSTRUCTIONS FROM BRIEF:\n{brief_section(ctx.brief, 'Submission', 'Abgabe') or ctx.brief[-2500:]}\n\n"
             f"YOUR JOB: submit exactly ONE signed bid for tender {answer.get('tender_reference') or facts.get('tender_reference')}.\n"
             f"Bidder company: {facts.get('bidder_company')}; VAT id (USt-IdNr.): {facts.get('bidder_vat_id')}"
             f"{'; contact e-mail: ' + contact if contact else ''}.\n"
             f"Decision: {'main offer (bid)' if decision == 'bid' else 'no bid (declaration of non-participation)'}.\n"
             f"Discount percent: {answer.get('discount_percent')}. Net total: {bid.get('total_display', '0,00')} EUR "
-            f"(enter numbers in German format exactly as given here).\n"
-            f"POSITIONS (the form may ask for them in a different order: always read which position it shows):\n"
+            f"(enter numbers in German format exactly as given).\n"
+            f"POSITIONS (form may ask in different order: always read which position it shows):\n"
             f"{bid_table(bid, ctx.board.get('tender') or {})}\n\n"
-            "How to work: log in, accept cookies, open the tender, register interest if needed, open the bid "
-            "submission. Close survey popups with their x button. Each step saves only with its continue/next button; "
-            "going back clears later steps, so get each step right before continuing. Use fill_form to set many fields "
-            "of a step in one action: for cascading selects pass apply_button (the button that applies the selection), "
-            "set the configuration first, then material, quantity, prices and lead time, and then_click the continue "
-            "button. Check every step's result with read_page when unsure (selects may default to a wrong option). "
-            "Acknowledge the tender documents, but tick nothing the brief does not ask for (e.g. own terms). When the "
-            "form wants the signing TAN, request it in the portal, then call get_signing_tan and enter the TAN it "
-            "returns right away (a TAN is valid only a few minutes; a new request invalidates the old one). Review the "
-            "summary and confirm the binding submission (accept the browser dialog). Finish with done once the portal "
-            "confirms the submission; report the confirmation/receipt text.")
+            "How to work: log in, accept cookies, open tender, register interest if needed, open bid submission. Close "
+            "survey popups with their x button. Each step saves only with its continue/next button; going back clears "
+            "later steps -> get each step right before continuing. fill_form sets many fields of a step in one action: "
+            "cascading selects -> pass apply_button (button applying the selection); set configuration first, then "
+            "material, quantity, prices, lead time; then_click continue button. Unsure -> check step result with "
+            "read_page (selects may default to wrong option). Acknowledge tender documents, tick nothing the brief does "
+            "not ask for (e.g. own terms). Form wants signing TAN -> request it in portal, call get_signing_tan, enter "
+            "returned TAN right away (TAN valid few minutes; new request invalidates old one). Review summary, confirm "
+            "binding submission (accept browser dialog). done once portal confirms submission; report "
+            "confirmation/receipt text.")
 
         def tan_tool(tools):
-            @tools.action("Read the newest signing TAN from our webmail (call right after requesting a TAN).",
+            @tools.action("Read newest signing TAN from our webmail (call right after requesting TAN).",
                           param_model=TanParams)
             async def get_signing_tan(params: TanParams):
                 if not mail_site:
@@ -104,15 +103,16 @@ class BidSubmitter(Agent):
                     await ctx.board.post(Evidence(kind="mail.tan" if rec["kind"] != "page" else "mail.page",
                                                   site=mail_site, data=rec["data"], source=rec["source"],
                                                   author=self.name, note=rec["note"]))
-                job = (f"Website (webmail): {mail['url']}\nLogin: username {mc.get('username')!r}, password "
-                       f"{mc.get('password')!r}\n\nYOUR JOB: a signing TAN for tender "
-                       f"{answer.get('tender_reference')} was just requested (at {params.requested_at or 'just now'}; "
-                       f"this session started {started}). Open the inbox (new TAN mails appear without searching), "
-                       "open the NEWEST signing-TAN message for this tender, read_page it, then record kind 'mail.tan' "
-                       "with data {\"tan\": \"...\", \"received\": \"...\", \"request\": \"...\"} copied exactly, and "
-                       "finish with done stating the TAN.")
+                job = (f"Site (webmail): {mail['url']}\nLogin: username {mc.get('username')!r}, password "
+                       f"{mc.get('password')!r}\n\nYOUR JOB: signing TAN for tender "
+                       f"{answer.get('tender_reference')} just requested (at {params.requested_at or 'just now'}; "
+                       f"session started {started}). Open inbox (new TAN mails appear without searching), open NEWEST "
+                       "signing-TAN message for this tender, read_page it, record kind 'mail.tan' with data "
+                       "{\"tan\": \"...\", \"received\": \"...\", \"request\": \"...\"} copied exactly, then done "
+                       "stating the TAN.")
                 out = await browse(ctx, job, browser=3, site_id=mail_site, on_record=keep, max_steps=10,
-                                   author=f"{self.name}.tan", stop_reserve=FINAL_MARGIN_S)
+                                   author=f"{self.name}.tan", stop_reserve=FINAL_MARGIN_S,
+                                   dedupe_reads=False)       # a new TAN request may update the same message page
                 tans = [r["data"].get("tan") for r in found if r["kind"] != "page" and r["data"].get("tan")]
                 text = f"TAN: {tans[-1]}" if tans else f"No TAN recorded. Mail agent said: {out['summary'][:300]}"
                 return ActionResult(extracted_content=text, long_term_memory=text)
@@ -121,11 +121,12 @@ class BidSubmitter(Agent):
         for attempt in range(3):           # an agent that stopped early (errors) gets another go while time allows
             out = await browse(ctx, goal + note, browser=self.browser, site_id=tender_site, max_steps=60,
                                author=self.name, stop_reserve=FINAL_MARGIN_S, extra_tools=tan_tool,
-                               max_actions_per_step=5)
+                               max_actions_per_step=5, flash=False,   # binding, signed: keep full reasoning
+                               careful=True)          # the popup guard never touches the wizard's own forms
             await ctx.board.set("submission", {"summary": out["summary"], "done": out["done"], "steps": out["steps"],
                                                "attempt": attempt + 1})
             self.log.info("submission attempt %d finished (done=%s): %s", attempt + 1, out["done"], out["summary"][:500])
             if out["done"] or ctx.seconds_left() < FINAL_MARGIN_S + 90:
                 break
-            note = (f"\n\nNOTE: a previous attempt stopped early ({out['summary'][:300]!r}). The browser may be in "
-                    "the middle of the wizard: check the current page first and continue from there.")
+            note = (f"\n\nNOTE: previous attempt stopped early ({out['summary'][:300]!r}). Browser may be mid-wizard: "
+                    "check current page first, continue from there.")

@@ -10,30 +10,28 @@ class SpecScraper(SiteScraper):
     role = "spec"
     browser = 1
     max_steps = 32
-    hints = ("Portal habits: a cookie wall after login (its accept button is not the logout button); a document "
-             "register that is paged; documents behind a usage form (choose the purpose for binding/verbindliche "
-             "documents, not preview or archive, and copy the displayed receipt number exactly - read_page shows "
-             "numbers drawn on canvas); viewers open the OLDEST revision first; status and values can sit in "
-             "tooltips; requirement tables are paged inside an iframe viewer whose URL you can open directly.")
+    hints = ("Portal habits: cookie wall after login (its accept button is not logout button); paged document "
+             "register; documents behind usage form (choose purpose for binding/verbindliche documents, not preview or "
+             "archive; copy displayed receipt number exactly - read_page shows numbers drawn on canvas); viewers open "
+             "OLDEST revision first; status and values may sit in tooltips; requirement tables paged inside iframe "
+             "viewer whose URL can be opened directly.")
 
     def goal(self) -> str:
         return (
-            "Collect the buyer's technical specification (Lastenheft) for the tender in the context.\n"
-            "1. Log in, accept the necessary cookies, find the specification for this tender in the documents "
-            "(read_page the register with next_page_link if it is paged) and get read access to the binding version.\n"
-            "2. read_page the specification page ONCE with topic 'spec revisions': its text includes the revision "
-            "history with every status (statuses hidden behind buttons/tooltips appear as '(tooltip: ...)'; no need "
-            "to click them). Decide from that text which revision is marked current/valid (not superseded).\n"
-            "3. Right away open the requirement table of THAT revision (its revision link, or the viewer URL with that "
-            "revision) and read_page it with topic 'spec requirements <revision>' and next_page_link set to the exact "
-            "next-page link text, so all requirement rows are saved. This step matters most; do not spend steps on "
-            "other revisions.\n"
-            "4. If requirement data sheets or set definitions (pieces per set) are separate documents, read_page them too.\n"
-            "5. Finish with done, naming the current revision.")
+            "Collect buyer's technical specification (Lastenheft) for the tender in context.\n"
+            "1. Log in, accept necessary cookies, find this tender's specification in documents (register paged -> "
+            "read_page with next_page_link), get read access to binding version.\n"
+            "2. read_page specification page ONCE with topic 'spec revisions': text includes revision history with "
+            "every status (statuses behind buttons/tooltips appear as '(tooltip: ...)'; no need to click). Decide from "
+            "it which revision is current/valid (not superseded).\n"
+            "3. Right away open requirement table of THAT revision (its revision link, or viewer URL with that "
+            "revision), read_page with topic 'spec requirements <revision>' and next_page_link = exact next-page link "
+            "text, so all requirement rows saved. Most important step; no steps on other revisions.\n"
+            "4. Requirement data sheets or set definitions (pieces per set) in separate documents -> read_page them too.\n"
+            "5. done, naming current revision.")
 
     def required(self):
         return [(("requirement", "anforderung"),
-                 "Open the specification (Lastenheft) for this tender, find the revision marked current/valid in the "
-                 "revision history (read_page shows statuses as tooltips), open THAT revision's requirement table "
-                 "and read_page it with topic 'spec requirements <revision>' and next_page_link set to the exact "
-                 "next-page link text. Then finish with done.")]
+                 "Open this tender's specification (Lastenheft), find revision marked current/valid in revision "
+                 "history (read_page shows statuses as tooltips), open THAT revision's requirement table, read_page "
+                 "with topic 'spec requirements <revision>' and next_page_link = exact next-page link text. Then done.")]
