@@ -1,0 +1,41 @@
+# Runs on every push to every branch: your tests, then the same tests on your branch merged with main (a trial merge,
+# nothing is pushed), and the team status in the job summary. Finds "my branch no longer fits main" at push time.
+name: team
+
+on:
+  push:
+    branches-ignore: ["entire/**"]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+      - name: Install
+        run: |
+          uv sync
+          uv run playwright install --with-deps chromium
+      - name: Tests on this branch
+        run: uv run --no-sync python -m pytest tests -q
+      - name: Tests on this branch merged with main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          git config user.email "ci@example.invalid"
+          git config user.name "ci"
+          if git merge --no-commit --no-ff origin/main; then
+            uv run --no-sync python -m pytest tests -q
+          else
+            echo "::error::This branch conflicts with main in: $(git diff --name-only --diff-filter=U | tr '\n' ' ')"
+            echo "Run: uv run --no-sync python scripts/team.py sync  (or ask the integrator)"
+            exit 1
+          fi
+      - name: Team status
+        if: always()
+        run: |
+          git merge --abort 2>/dev/null || git reset -q --hard
+          uv run --no-sync python scripts/team.py status --no-fetch --no-conflicts >> "$GITHUB_STEP_SUMMARY"

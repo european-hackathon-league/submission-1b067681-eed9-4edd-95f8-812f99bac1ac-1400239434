@@ -151,6 +151,9 @@ starts (own model keys cost up to 3x).
 
 ## Team workflow
 
+See `docs/COLLABORATION.md` (baseline, `scripts/team.py status|sync|integrate`, CI) and `docs/INTEGRATION.md`
+(what came from which branch, open contract questions).
+
 - Commit with normal `git commit` / `git push` so Entire checkpoints get linked. Do not push `entire/*` branches.
 - Never read, print or commit `.env` or API keys. `.entire/settings.json` is shared; `settings.local.json` is personal.
 - Pull before starting, keep commits small, and say in the team chat before running `atira submit`.

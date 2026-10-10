@@ -12,3 +12,16 @@
 - Never read, print or commit `.env` or API keys.
 - This repo uses Entire: commit your work with normal `git commit` / `git push` so session
   checkpoints get linked. Do not push `entire/*` shadow branches manually.
+
+## Working alongside the rest of the team (read docs/COLLABORATION.md)
+
+- `main` is the shared baseline; other developers and their agents work on other branches at the same time.
+- **At the start of every task** run `uv run --no-sync python scripts/team.py status --json` and read
+  `docs/INTEGRATION.md`. Do not build what already exists in `main` or on another branch; extend it.
+- If your branch is behind `main`, run `uv run --no-sync python scripts/team.py sync` (safe: changes nothing unless the
+  merge is clean and the tests pass) before editing files that `main` also changed.
+- Before changing a file that `status` lists as changed on another branch, say so to the user: it is a likely conflict.
+- When two parts must agree (bid rules, result shapes, number formats), extend `tests/test_contracts.py`.
+- One task per worktree: `git worktree add ../<task> -b <user>/<task> origin/main`. Never edit another agent's worktree.
+- Never commit `.integration/` or `.swarm/`; never force-push; never push to `main` (the integrator moves it).
+

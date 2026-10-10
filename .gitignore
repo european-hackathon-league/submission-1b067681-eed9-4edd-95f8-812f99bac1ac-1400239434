@@ -42,3 +42,6 @@ __pycache__/
 BRIEF.md
 answer_schema.json
 CHALLENGE.md
+
+# branch inspection, trial merges and integration worktrees (scripts/team.py); never committed or packaged
+.integration/
