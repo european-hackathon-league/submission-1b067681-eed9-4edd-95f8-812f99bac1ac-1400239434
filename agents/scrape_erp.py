@@ -29,8 +29,8 @@ from swarm.scraper import SiteScraper
 from swarm.sites import site_for
 
 ANALYSIS_TIME_S = 60    # what the material matcher needs after the last ERP page
-ERP_TABS = int(os.environ.get("SWARM_ERP_TABS", "4"))   # parallel ERP jobs (main tab included); was 8: the 4-vCPU
-#   sandbox stalled every browser at once (state capture timeouts), locally the same run did not
+ERP_TABS = int(os.environ.get("SWARM_ERP_TABS", "6"))   # parallel ERP jobs (main tab included). 8 stalled the
+#   4-vCPU sandbox (with hung tabs, since fixed); 4 left ERP prices uncollected in a 9-minute collection
 
 HINTS = ("Adapt to the observed software; these are possible patterns, not requirements. ERP habits: SAP-style transaction codes (start page / menu lists transactions for material display, stock "
          "overview, price conditions); system notice or access gate after login (copy displayed number exactly - "
