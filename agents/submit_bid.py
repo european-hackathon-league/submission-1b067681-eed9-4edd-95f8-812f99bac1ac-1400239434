@@ -131,9 +131,12 @@ class BidSubmitter(Agent):
             @tools.action("Read newest signing TAN from our webmail (call right after requesting TAN).",
                           param_model=TanParams)
             async def get_signing_tan(params: TanParams):
-                nonlocal tan_task
+                nonlocal tan_task, mail_site
                 if not mail_site:
-                    return ActionResult(error="mail website unknown")
+                    try:
+                        mail_site = await site_for(ctx, "mail")
+                    except Exception as error:
+                        return ActionResult(error=f"mail website discovery failed ({type(error).__name__}); retry after inspecting site capabilities")
                 async def retrieve():
                     mail = ctx.site(mail_site)
                     mc = mail.get("credentials") or {}

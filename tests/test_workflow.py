@@ -100,6 +100,38 @@ class BrowserControls(unittest.IsolatedAsyncioTestCase):
 
 
 class InterruptedCollection(unittest.IsolatedAsyncioTestCase):
+    async def test_dialog_callback_does_not_block_cdp_response_receiver(self):
+        from swarm.browser_agent import RobustSession, PopupsWatchdog
+        from cdp_use.cdp.registry import EventRegistry
+        registry = EventRegistry()
+        sent, response = asyncio.Event(), asyncio.Event()
+        calls = []
+        async def enable(**kwargs): pass
+        async def dismiss(**kwargs):
+            calls.append(kwargs)
+            sent.set()
+            await response.wait()
+        client = NS(send=NS(Page=NS(enable=enable, handleJavaScriptDialog=dismiss)),
+                    register=NS(Page=NS(javascriptDialogOpening=lambda callback: registry.register('dialog', callback),
+                                        javascriptDialogClosed=lambda callback: registry.register('closed', callback))))
+        session = RobustSession()
+        watchdog = PopupsWatchdog(browser_session=session, event_bus=session.event_bus)
+        watchdog.attach_to_session()
+        await session._handle_dialogs(NS(cdp_client=client, session_id='fixture'))
+        # The receive loop must return from the callback before it can deliver the command's response.
+        await asyncio.wait_for(registry.handle_event('dialog', {'type':'confirm','message':'Submit?'}, 'fixture'), .2)
+        await asyncio.wait_for(sent.wait(), .2)
+        for _ in range(4):
+            await registry.handle_event('dialog', {'type':'confirm','message':'Submit?'}, 'fixture')
+        response.set()
+        await asyncio.wait_for(asyncio.gather(*list(session._dialog_tasks)), .2)
+        self.assertEqual(len(calls), 1)
+        await registry.handle_event('closed', {}, 'fixture')
+        await registry.handle_event('dialog', {'type':'confirm','message':'Submit?'}, 'fixture')
+        await asyncio.wait_for(asyncio.gather(*list(session._dialog_tasks)), .2)
+        self.assertEqual(len(calls), 2)
+        await session.event_bus.stop(clear=True, timeout=.2)
+
     async def test_tan_record_completes_lookup_without_an_extra_model_call(self):
         from swarm import browser_agent as ba
         ctx = Context(task={'brief':'', 'access':[]}, board=Blackboard(), llm=None, pool=None)

@@ -45,6 +45,7 @@ import httpx  # noqa: E402
 from browser_use import ActionResult, Agent, BrowserProfile, BrowserSession, ChatOpenAI, Tools  # noqa: E402,F401
 from browser_use.browser.session_manager import SessionManager  # noqa: E402
 from browser_use.browser.watchdogs.aboutblank_watchdog import AboutBlankWatchdog  # noqa: E402
+from browser_use.browser.watchdogs.popups_watchdog import PopupsWatchdog  # noqa: E402
 from cdp_use import CDPClient  # noqa: E402
 from pydantic import BaseModel, Field, PrivateAttr  # noqa: E402
 
@@ -407,6 +408,8 @@ class RobustSession(BrowserSession):
     _focus_emulated: set = PrivateAttr(default_factory=set)
     _dialogs_handled: set = PrivateAttr(default_factory=set)
     _state_timeouts: int = PrivateAttr(default=0)
+    _dialog_tasks: set = PrivateAttr(default_factory=set)
+    _dialog_pending: dict = PrivateAttr(default_factory=dict)
 
     async def get_browser_state_summary(self, include_screenshot: bool = True, cached: bool = False,
                                         include_recent_events: bool = False):
@@ -455,7 +458,7 @@ class RobustSession(BrowserSession):
         then froze, every page script and state read waited for the dialog, and the run ended without an answer."""
         root = self._cdp_client_root or session.cdp_client
 
-        async def on_dialog(event, session_id=None):
+        async def dismiss(event, session_id=None):
             kind, message = event.get("type", "alert"), event.get("message", "")
             try:
                 self._closed_popup_messages.append(f"[{kind}] {message}")
@@ -465,11 +468,40 @@ class RobustSession(BrowserSession):
             try:
                 await asyncio.wait_for(root.send.Page.handleJavaScriptDialog(
                     params={"accept": kind != "prompt"}, session_id=session_id or session.session_id), 5)
+                return True
             except Exception as error:
                 log.debug("dialog handling failed: %s", error)
+                return False
+
+        def target_for(session_id):
+            manager = self.session_manager
+            return (manager.get_target_id_from_session_id(session_id) if manager and session_id else None) or getattr(session, "target_id", session_id)
+
+        def on_closed(event, session_id=None):
+            target = target_for(session_id or session.session_id)
+            for key in list(self._dialog_pending):
+                if key[0] == target:
+                    self._dialog_pending.pop(key, None)
+
+        def on_dialog(event, session_id=None):
+            # cdp-use awaits async callbacks inside its sole WebSocket receive loop. Waiting for a CDP
+            # response there prevents that very response from being received and stalls page observation.
+            key = (target_for(session_id or session.session_id), event.get("type"), event.get("message"))
+            if key in self._dialog_pending:
+                return
+            task = asyncio.create_task(dismiss(event, session_id))
+            self._dialog_pending[key] = task
+            self._dialog_tasks.add(task)
+            def finished(done):
+                self._dialog_tasks.discard(done)
+                if done.cancelled() or done.exception() or not done.result():
+                    if self._dialog_pending.get(key) is done:
+                        self._dialog_pending.pop(key, None)
+            task.add_done_callback(finished)
         try:
-            await session.cdp_client.send.Page.enable(session_id=session.session_id)
             session.cdp_client.register.Page.javascriptDialogOpening(on_dialog)
+            session.cdp_client.register.Page.javascriptDialogClosed(on_closed)
+            await session.cdp_client.send.Page.enable(session_id=session.session_id)
         except Exception as error:
             log.debug("dialog handler not registered: %s", error)
 
@@ -486,6 +518,22 @@ class RobustSession(BrowserSession):
             except Exception as stop_error:
                 log.debug("stopLoading failed: %s", stop_error)
             return await super()._navigate_and_wait(url, target_id, timeout=timeout, wait_until=wait_until)
+
+
+_original_popup_setup = PopupsWatchdog.on_TabCreatedEvent
+
+
+async def _setup_nonblocking_dialogs(self, event):
+    session = self.browser_session
+    if isinstance(session, RobustSession):
+        cdp = await session.get_or_create_cdp_session(event.target_id, focus=False)
+        await session._handle_dialogs(cdp)
+    else:
+        await _original_popup_setup(self, event)
+
+
+_setup_nonblocking_dialogs.__name__ = "on_TabCreatedEvent"
+PopupsWatchdog.on_TabCreatedEvent = _setup_nonblocking_dialogs
 
 
 class TextSession(RobustSession):
@@ -681,6 +729,10 @@ async def browse(ctx, goal: str, *, browser: int = 0, tab: Tab | None = None, si
         except TimeoutError:
             log.warning("browser cleanup exceeded its budget for %s", author)
         finally:
+            tasks = list(session._dialog_tasks)
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
             if browsing_llm._sdk_client is not None:
                 await browsing_llm._sdk_client.close()
     summary = history.final_result() or ("Browser state repeatedly timed out; reattach to the existing tab and inspect it"
