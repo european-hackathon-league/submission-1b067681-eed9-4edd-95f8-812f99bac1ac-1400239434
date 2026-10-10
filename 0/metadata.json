@@ -1,0 +1,113 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "01M4KARVP7NCVKQX19YZPP3RR7",
+  "session_id": "1024cd3b-febb-42f0-b58b-798a139cb76e",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-10T16:36:44.272137Z",
+  "branch": "tanreader-debug",
+  "checkpoints_count": 4,
+  "save_step_count": 4,
+  "files_touched": [
+    "agents/read_tan.py"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "turn_id": "aa6662482e8a",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 842,
+    "cache_creation_tokens": 1807379,
+    "cache_read_tokens": 168482030,
+    "output_tokens": 360686,
+    "api_call_count": 400
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01GcibfpWyQrEDM4fMMZTRqe",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "anthropic-skills:built-in-browser"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "aa6662482e8a",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 63,
+        "end": 64,
+        "entry_ids": [
+          "f6cd03af-81ed-469a-bd7a-1319df72b578"
+        ],
+        "tool_use_id": "toolu_01GcibfpWyQrEDM4fMMZTRqe"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01GcibfpWyQrEDM4fMMZTRqe"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: anthropic-skills:built-in-browser",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 4
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-10T16:36:44.064144Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 15,
+    "total_committed": 0,
+    "total_lines_changed": 15,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 171,
+      "user_lines_removed": 29,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "agents/read_tan.py": 138,
+        "sites.py": 24,
+        "tests/test_read_tan.py": 9
+      },
+      "user_removed_per_file": {
+        "agents/read_tan.py": 15,
+        "sites.py": 11,
+        "tests/test_read_tan.py": 3
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 171,
+      "agent_lines_removed": 29
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 171,
+      "agent_lines_removed": 29
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 171,
+      "agent_lines_removed": 29
+    }
+  ]
+}
