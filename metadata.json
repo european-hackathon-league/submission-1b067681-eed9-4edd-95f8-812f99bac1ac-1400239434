@@ -1,0 +1,52 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4KA0JZTSHHY3QM0A71HBTF0",
+  "strategy": "manual-commit",
+  "branch": "tender_portal",
+  "checkpoints_count": 14,
+  "files_touched": [
+    "agent.py",
+    "agents/analyze_discount.py",
+    "agents/analyze_materials.py",
+    "agents/analyze_quantities.py",
+    "agents/analyze_requirements.py",
+    "agents/compute_bid.py",
+    "agents/read_brief.py",
+    "agents/scrape_erp.py",
+    "agents/scrape_mail.py",
+    "agents/scrape_spec.py",
+    "agents/scrape_tender.py",
+    "agents/submit_bid.py",
+    "agents/verify_evidence.py",
+    "docs/SWARM.md",
+    "models.py",
+    "swarm/browser_agent.py",
+    "swarm/context.py",
+    "swarm/extract.py",
+    "swarm/forms.py",
+    "swarm/llm.py",
+    "swarm/normalize.py",
+    "swarm/orchestrator.py",
+    "swarm/page_text.py",
+    "swarm/scraper.py",
+    "swarm/sites.py",
+    "tests/test_rules.py",
+    "tests/test_swarm.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 770,
+    "cache_creation_tokens": 696207,
+    "cache_read_tokens": 120558314,
+    "output_tokens": 305140,
+    "api_call_count": 379
+  }
+}

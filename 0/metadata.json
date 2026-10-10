@@ -1,0 +1,293 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4KA0JZTSHHY3QM0A71HBTF0",
+  "session_id": "86d91649-2edb-49c7-b1b0-48c896c34f82",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-10T16:23:25.137503Z",
+  "branch": "tender_portal",
+  "checkpoints_count": 14,
+  "save_step_count": 11,
+  "files_touched": [
+    "agent.py",
+    "agents/analyze_discount.py",
+    "agents/analyze_materials.py",
+    "agents/analyze_quantities.py",
+    "agents/analyze_requirements.py",
+    "agents/compute_bid.py",
+    "agents/read_brief.py",
+    "agents/scrape_erp.py",
+    "agents/scrape_mail.py",
+    "agents/scrape_spec.py",
+    "agents/scrape_tender.py",
+    "agents/submit_bid.py",
+    "agents/verify_evidence.py",
+    "docs/SWARM.md",
+    "models.py",
+    "swarm/browser_agent.py",
+    "swarm/context.py",
+    "swarm/extract.py",
+    "swarm/forms.py",
+    "swarm/llm.py",
+    "swarm/normalize.py",
+    "swarm/orchestrator.py",
+    "swarm/page_text.py",
+    "swarm/scraper.py",
+    "swarm/sites.py",
+    "tests/test_rules.py",
+    "tests/test_swarm.py"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "turn_id": "ece2549790ad",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 770,
+    "cache_creation_tokens": 696207,
+    "cache_read_tokens": 120558314,
+    "output_tokens": 305140,
+    "api_call_count": 379
+  },
+  "session_metrics": {
+    "turn_count": 14
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-10T16:23:24.7133515Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 83,
+    "human_modified": 764,
+    "human_removed": 0,
+    "total_committed": 83,
+    "total_lines_changed": 847,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 2194,
+      "user_lines_removed": 320,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "agents/analyze_discount.py": 151,
+        "agents/analyze_materials.py": 141,
+        "agents/analyze_quantities.py": 73,
+        "agents/analyze_requirements.py": 85,
+        "agents/compute_bid.py": 262,
+        "agents/read_brief.py": 43,
+        "agents/scrape_erp.py": 108,
+        "agents/scrape_mail.py": 42,
+        "agents/scrape_spec.py": 20,
+        "agents/scrape_tender.py": 20,
+        "agents/submit_bid.py": 112,
+        "agents/verify_evidence.py": 33,
+        "docs/SWARM.md": 58,
+        "models.py": 41,
+        "swarm/browser_agent.py": 160,
+        "swarm/context.py": 19,
+        "swarm/extract.py": 97,
+        "swarm/forms.py": 119,
+        "swarm/llm.py": 66,
+        "swarm/normalize.py": 118,
+        "swarm/orchestrator.py": 72,
+        "swarm/page_text.py": 86,
+        "swarm/scraper.py": 40,
+        "swarm/sites.py": 46,
+        "tests/test_rules.py": 182
+      },
+      "user_removed_per_file": {
+        "agents/analyze_discount.py": 4,
+        "agents/analyze_materials.py": 5,
+        "agents/analyze_quantities.py": 7,
+        "agents/analyze_requirements.py": 4,
+        "agents/compute_bid.py": 4,
+        "agents/scrape_erp.py": 9,
+        "agents/scrape_mail.py": 7,
+        "agents/scrape_spec.py": 6,
+        "agents/scrape_tender.py": 9,
+        "agents/submit_bid.py": 5,
+        "agents/verify_evidence.py": 3,
+        "docs/SWARM.md": 47,
+        "models.py": 40,
+        "swarm/browser_agent.py": 22,
+        "swarm/context.py": 4,
+        "swarm/llm.py": 62,
+        "swarm/orchestrator.py": 72,
+        "swarm/scraper.py": 10
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 2194,
+      "agent_lines_removed": 320
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 11,
+      "user_lines_removed": 6,
+      "agent_lines_added": 2194,
+      "agent_lines_removed": 320,
+      "user_added_per_file": {
+        "agents/scrape_mail.py": 3,
+        "agents/scrape_spec.py": 8
+      },
+      "user_removed_per_file": {
+        "agents/scrape_mail.py": 1,
+        "agents/scrape_spec.py": 5
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 47,
+      "user_lines_removed": 13,
+      "agent_lines_added": 2199,
+      "agent_lines_removed": 320,
+      "user_added_per_file": {
+        "agents/scrape_erp.py": 5,
+        "agents/scrape_mail.py": 1,
+        "agents/submit_bid.py": 2,
+        "swarm/browser_agent.py": 23,
+        "swarm/scraper.py": 16
+      },
+      "user_removed_per_file": {
+        "agents/scrape_erp.py": 2,
+        "agents/scrape_mail.py": 1,
+        "agents/submit_bid.py": 1,
+        "swarm/browser_agent.py": 8,
+        "swarm/scraper.py": 1
+      }
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 194,
+      "user_lines_removed": 41,
+      "agent_lines_added": 2236,
+      "agent_lines_removed": 323,
+      "user_added_per_file": {
+        "agents/analyze_materials.py": 21,
+        "agents/analyze_quantities.py": 7,
+        "agents/analyze_requirements.py": 38,
+        "agents/compute_bid.py": 4,
+        "agents/scrape_erp.py": 9,
+        "agents/scrape_spec.py": 7,
+        "agents/scrape_tender.py": 13,
+        "agents/submit_bid.py": 14,
+        "docs/SWARM.md": 20,
+        "swarm/browser_agent.py": 11,
+        "swarm/extract.py": 12,
+        "swarm/llm.py": 1,
+        "swarm/scraper.py": 12,
+        "tests/test_rules.py": 25
+      },
+      "user_removed_per_file": {
+        "agents/analyze_materials.py": 9,
+        "agents/analyze_quantities.py": 2,
+        "agents/analyze_requirements.py": 12,
+        "agents/compute_bid.py": 1,
+        "agents/scrape_erp.py": 3,
+        "agents/scrape_tender.py": 5,
+        "agents/submit_bid.py": 5,
+        "swarm/browser_agent.py": 2,
+        "swarm/extract.py": 1,
+        "tests/test_rules.py": 1
+      }
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 37,
+      "user_lines_removed": 2,
+      "agent_lines_added": 2590,
+      "agent_lines_removed": 490,
+      "user_added_per_file": {
+        "swarm/extract.py": 12,
+        "tests/test_rules.py": 25
+      },
+      "user_removed_per_file": {
+        "swarm/extract.py": 1,
+        "tests/test_rules.py": 1
+      }
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 37,
+      "user_lines_removed": 2,
+      "agent_lines_added": 2590,
+      "agent_lines_removed": 490,
+      "user_added_per_file": {
+        "swarm/extract.py": 12,
+        "tests/test_rules.py": 25
+      },
+      "user_removed_per_file": {
+        "swarm/extract.py": 1,
+        "tests/test_rules.py": 1
+      }
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 76,
+      "user_lines_removed": 5,
+      "agent_lines_added": 2590,
+      "agent_lines_removed": 490,
+      "user_added_per_file": {
+        "agent.py": 1,
+        "swarm/browser_agent.py": 29,
+        "swarm/extract.py": 12,
+        "tests/test_rules.py": 25,
+        "tests/test_swarm.py": 9
+      },
+      "user_removed_per_file": {
+        "agent.py": 1,
+        "swarm/browser_agent.py": 2,
+        "swarm/extract.py": 1,
+        "tests/test_rules.py": 1
+      }
+    },
+    {
+      "checkpoint_number": 9,
+      "user_lines_added": 37,
+      "user_lines_removed": 2,
+      "agent_lines_added": 2628,
+      "agent_lines_removed": 490,
+      "user_added_per_file": {
+        "swarm/extract.py": 12,
+        "tests/test_rules.py": 25
+      },
+      "user_removed_per_file": {
+        "swarm/extract.py": 1,
+        "tests/test_rules.py": 1
+      }
+    },
+    {
+      "checkpoint_number": 10,
+      "user_lines_added": 37,
+      "user_lines_removed": 2,
+      "agent_lines_added": 2628,
+      "agent_lines_removed": 490,
+      "user_added_per_file": {
+        "swarm/extract.py": 12,
+        "tests/test_rules.py": 25
+      },
+      "user_removed_per_file": {
+        "swarm/extract.py": 1,
+        "tests/test_rules.py": 1
+      }
+    },
+    {
+      "checkpoint_number": 11,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 12,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 2663,
+      "agent_lines_removed": 490
+    }
+  ]
+}
