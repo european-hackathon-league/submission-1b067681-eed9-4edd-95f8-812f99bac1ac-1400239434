@@ -147,3 +147,27 @@ class Pricing(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TechnicalDerivation(unittest.TestCase):
+    """A requirement given as *nutzbarer Weg* is not the number the ERP holds."""
+
+    def test_usable_travel_becomes_nominal_by_adding_both_end_reserves(self):
+        self.assertEqual(bm.nominal_stroke(482, 4), Decimal("490"))      # 482 + 2*4, not 486
+
+    def test_a_plain_requirement_is_matched_as_it_stands(self):
+        self.assertEqual(bm.match_stroke(482), Decimal("482"))
+
+    def test_a_usable_requirement_without_its_reserve_is_an_error_not_a_guess(self):
+        with self.assertRaises(ValueError) as caught:
+            bm.match_stroke(482, usable=True)
+        self.assertIn("Technikfreigabe", str(caught.exception))
+
+
+class RebateIsPerPosition(unittest.TestCase):
+    def test_rebate_total_is_the_credit_for_the_whole_position_not_per_piece(self):
+        facts = bm.PositionFacts(position="01.05", material_number="M-5", pieces=10,
+                                 base_unit_price=Decimal("100"), lead_time_weeks=4,
+                                 project_bonus=Decimal("25.00"))
+        priced = bm.price_position(facts, Decimal("0"))
+        self.assertEqual(priced.entry["rebate_total"], 25.00)   # the position's credit, never 25.00/10

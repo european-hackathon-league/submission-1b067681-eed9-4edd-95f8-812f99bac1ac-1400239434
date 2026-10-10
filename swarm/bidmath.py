@@ -281,3 +281,28 @@ def answer(bid: Bid) -> dict:
     return {"tender_reference": reference, "decision": "bid", "currency": "EUR",
             "discount_percent": float(D(bid.discount_percent)), "positions": [p.entry for p in priced],
             "total_net": float(total), "notes": bid.notes}
+
+
+# --- technical derivation (the "nutzbarer Weg" rule) ------------------------------------------------------------------
+
+def nominal_stroke(usable_stroke, reserve_per_end) -> Decimal:
+    """The stroke to match against the ERP for a requirement given as *nutzbarer Weg* (usable travel).
+
+    The brief: apply the requirement's scoped amendments first, then add twice the per-end reserve from the
+    Technikfreigabe for that revision; match the resulting NOMINAL stroke to the ERP, leaving the other
+    attributes alone. So pass the already-amended usable value in.
+
+    Matters because rule 3 wants every attribute to be exactly equal: compare a usable stroke against the ERP's
+    nominal one and nothing matches, which turns into a no_bid for the whole tender rather than one bad
+    position.
+    """
+    return D(usable_stroke) + 2 * D(reserve_per_end)
+
+
+def match_stroke(requirement_stroke, reserve_per_end=None, usable: bool = False) -> Decimal:
+    """The value to compare with an ERP material: as given, or derived when the requirement is a usable travel."""
+    if not usable:
+        return D(requirement_stroke)
+    if reserve_per_end is None:
+        raise ValueError("a 'nutzbarer Weg' requirement needs the per-end reserve from the Technikfreigabe")
+    return nominal_stroke(requirement_stroke, reserve_per_end)

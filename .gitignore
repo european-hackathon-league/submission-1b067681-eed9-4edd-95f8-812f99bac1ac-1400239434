@@ -37,3 +37,8 @@ __pycache__/
 
 # Swarm local dev cache (holds scouting data: never commit/package)
 .swarm/
+
+# локальные справочники рантайма (на приватном датасете другие)
+BRIEF.md
+answer_schema.json
+CHALLENGE.md

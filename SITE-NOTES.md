@@ -60,3 +60,67 @@ Presents itself as "SAP GUI für HTML", client PRD/100. Every path first serves 
   the "Original öffnen" link to `/messages/<id>`.
 
 **Message contents not read yet.**
+
+## customer-portal, in detail
+
+- Document register at `/documents`, **one row per page** (`?page=N`); the Lastenheft is a row of type
+  "Technische Spezifikation" whose Zuordnung is the tender reference.
+- Almost every link on these pages points at `/documents/supplier-guide` — the banner, the toolbar, the sidebar.
+  The row's real link is the one labelled "Dokument anzeigen".
+- The specification sits behind a **Dokumentenüberlassung** form, with no robot gate:
+  `purpose` is a radio of `preview` / `reference` / `archive`, and the page states plainly that archive and
+  preview grant **no** read permission — only `reference` ("Verbindliche Unterlagen zur Kenntnis genommen")
+  reaches the governing revision. Picking either of the others is how you end up on a superseded one.
+- The form also wants a **Belegnummer painted into a `<canvas>`**, a "Überlassungsbedingungen gelesen"
+  acknowledgement, and submits with `operation=read`.
+- The receipt field's label is CSS-generated (`content: attr(data-label)`), so it is not in the text either;
+  read `data-label` if you need it.
+- Canvases are painted by a script after load: capture them a moment later or you get a blank image.
+
+## Reading obfuscated values — the one rule that covers most of it
+
+The sites hide values from naive scraping in four different ways, and **the accessible name is the reliable
+channel**: `aria-label` carries the clean value in most cases, so prefer it over `innerText` everywhere.
+
+| Hidden how | Where seen | Read it from |
+|---|---|---|
+| Zero-width padding | every identifier | `aria-label`, else `plain()` |
+| Painted into `<canvas>` | ERP Empfangsnummer, supplier-portal Belegnummer, spec Bohrung | `aria-label` when present, else `models.read_image` |
+| CSS hover tooltip, `display:none` | Q&A dates, certification | `[role=tooltip]` textContent |
+| CSS-generated label | receipt field | `data-label` attribute |
+
+A cell holding a canvas contributes **no** `innerText`, so a row read as text silently loses a column and every
+later value shifts left. Read tables cell by cell, never by splitting the row's text.
+
+### Specification viewer
+
+- Requirements live in an iframe: `/documents/specification/viewer?revision=<rev>`, one requirement per page
+  (`&page=N`). The header says `gültig` on the governing revision.
+- Numeric cells are tagged with a locale, `200 (en-US)` / `210 (de-DE)`. Parse per the tag: thousands and
+  decimal separators swap between them.
+- Revision dates in the history are each tagged `(MM/TT)` or `(TT/MM)`, and the tag varies between renders of
+  the same table. Normalise per row; sorting by revision number gives the wrong answer.
+
+## mail, in detail — the index is reachable without the robot check
+
+Only message **bodies** sit behind the slider. Folders, subjects and dates come back from ordinary search, so
+the whole index can be mapped first and the bodies fetched once.
+
+- Folder urls carry an explicit empty query: `/?folder=inbox&q=` and `/?folder=archive&q=`. Dropping `q=`
+  returns nothing for the archive.
+- The default inbox view lists only the signing TANs, not all messages — the rest need a search.
+- Search is AND over words, capped at 20 hits: tender reference plus a subject word works
+  (`<reference> Rabattfreigabe`). A topic can live in either folder, so search both.
+- `/tools` offers a mailbox export; it reports "Ein Export wurde nicht erstellt" until one is made.
+
+### Three traps the index alone already shows
+
+1. **Near-miss references.** The reference with a suffix (`<reference>-A`) is a *different* tender, and its messages shadow the real ones
+   for Rabattfreigabe, Preisindizes and Verpackungstarife. The decoys are often the **newer** of the pair, so
+   "take the latest" without an exact-reference check picks the wrong record every time.
+2. **Future-dated records.** Devisenfixing exists twice for the exact reference, one before and one after the
+   scenario date. The later one must be ignored.
+3. **Superseded approvals.** Rabattfreigabe for the exact reference exists twice, a week apart;
+   only the newer one applies, and it may carry a minimum order value condition.
+
+Resolve every key as: exact reference, authorised sender, latest date **not after the scenario date**.
