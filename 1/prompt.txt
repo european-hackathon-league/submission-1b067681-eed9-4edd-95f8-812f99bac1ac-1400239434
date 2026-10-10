@@ -1,0 +1,13 @@
+<task-notification>
+<task-id>bcy14v33o</task-id>
+<summary>Monitor event: "sandbox run milestones (new guard, dialog handler, matcher fixes)"</summary>
+<event>[Monitor expired after 30m with no events delivered. Re-arm it if you still need the watch — and widen the filter if silence was unexpected.]</event>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b2bq7qrjm</task-id>
+<summary>Monitor event: "sandbox run_bdda milestones from the local log copy"</summary>
+<event>[Monitor expired after 30m with no events delivered. Re-arm it if you still need the watch — and widen the filter if silence was unexpected.]</event>
+</task-notification>
