@@ -119,7 +119,18 @@ async def canvas_images(page) -> list[bytes]:
 #     sites.unlock = _unlock
 #
 # Everything else in the pipeline calls `pass_robot_check` and works as soon as this is set.
-unlock = None
+async def _unlock(page, timeout: float = 300_000):
+    """Require a human to complete the verification; do not automate it.
+
+    Waits for "Gesperrt" to go, not for the "Ich bin kein Roboter" label: that label is the checkbox's own
+    caption and stays on the page after the check passes, so waiting for it to disappear never returns.
+    Measured on the ERP gate: "Gesperrt" and the form's disabled state both clear at the same moment.
+    """
+    await page.bring_to_front()
+    await page.wait_for_function(
+        "() => !document.body.innerText.includes('Gesperrt')", timeout=timeout)
+
+unlock = _unlock
 
 
 async def pass_robot_check(page) -> None:
@@ -132,5 +143,9 @@ async def pass_robot_check(page) -> None:
 
 
 def is_locked(text: str) -> bool:
-    """True when a page is showing the locked state rather than its content."""
-    return "Ich bin kein Roboter" in text or "Gesperrt" in text
+    """True when a page is showing the locked state rather than its content.
+
+    Only "Gesperrt" is a state; the "Ich bin kein Roboter" caption stays put once the check has passed, so
+    testing for it reports every unlocked page as still locked.
+    """
+    return "Gesperrt" in text
