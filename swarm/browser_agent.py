@@ -25,6 +25,7 @@ for agents whose decisions are costly to get wrong (the bid submitter).
 Per-site knowledge goes into `goal`/`hints` as general strategy, never scenario values.
 """
 import asyncio
+import time
 import json
 import logging
 import os
@@ -319,6 +320,42 @@ class Tab:
                 *(c.send.Target.closeTarget(params={"targetId": t}) for t in targets), return_exceptions=True))
         except Exception as error:      # already closed / browser gone
             log.debug("closing tab failed: %s", error)
+
+
+_UNRESPONSIVE: dict[int, float] = {}   # browser index -> time.monotonic() when it last failed to answer
+DEAD_FOR_S = 60                          # a browser that did not answer is skipped this long before it is tried again
+
+
+async def browser_responds(browser: int, timeout: float = 12) -> bool:
+    """Does browser `browser` answer over CDP at all? (A hung page once left a sandbox browser unreachable for the rest
+    of the run; every reconnect then failed after 15 s.)"""
+    if not browsers.cdp_urls():
+        return True
+    seen = _UNRESPONSIVE.get(browser)
+    if seen is not None and time.monotonic() - seen < DEAD_FOR_S:
+        return False
+    try:
+        await asyncio.wait_for(_with_cdp(browser, lambda c: c.send.Target.getTargets()), timeout)
+    except Exception as error:  # noqa: BLE001 - timeout, refused, closed: all mean "not usable now"
+        _UNRESPONSIVE[browser] = time.monotonic()
+        log.warning("browser %d does not respond (%s)", browser, type(error).__name__)
+        return False
+    _UNRESPONSIVE.pop(browser, None)
+    return True
+
+
+async def responsive_tab(tab: "Tab") -> "Tab":
+    """The tab to work in: `tab` if its browser answers, else a new tab of the next browser that does. Any browser can
+    open any site, so one dead browser must not take a whole role (or the signing) down with it."""
+    urls = browsers.cdp_urls()
+    if not urls or await browser_responds(tab.browser):
+        return tab
+    for step in range(1, len(urls)):
+        other = (tab.browser + step) % len(urls)
+        if await browser_responds(other):
+            log.warning("browser %d is unreachable: continuing in a new tab of browser %d", tab.browser, other)
+            return Tab(other)
+    return tab   # none answers: try the original again (the caller's retry logic takes over)
 
 
 def main_tab(browser: int) -> Tab:
@@ -663,7 +700,7 @@ async def browse(ctx, goal: str, *, browser: int = 0, tab: Tab | None = None, si
     if extra_tools:
         extra_tools(tools)
 
-    tab = tab or main_tab(browser)
+    tab = await responsive_tab(tab or main_tab(browser))
     await tab.open()
     session = make_session(ctx, tab, vision=bool(use_vision))
     prompt = dict(flash_mode=True, override_system_message=FLASH_SYSTEM.format(max_actions=max_actions_per_step)) \

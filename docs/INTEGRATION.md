@@ -32,6 +32,7 @@ rewritten for it (`tests/test_submit_bid.py`, same intents).
 | Number format in the bid form above 999 EUR | `1.234,50` (tender_portal); main entered `1234,50`. Unverified which the form accepts. | `swarm/normalize.de_number` |
 | Condition without a price unit | runtime prices nothing (tender_portal: "does not get guessed"); bidmath assumes 1 | `agents/compute_bid.scale_price` |
 | "Ordinary setup fee" source | runtime: from the Q&A answer; tanreader-debug's calculator: from the ERP condition | `agents/compute_bid.position_keys` |
+| A browser that stops answering | **Fixed after the first sandbox run of this baseline** (run_2fc8121504807328: browser 0 never reconnected, 0 tender pages, 5 failed signing attempts): `browse()` checks the browser and moves the work to a new tab of a responsive one (`responsive_tab`). | `swarm/browser_agent.py` |
 | One frozen tab stalls every browser | browser-use routes all browser events of a process through one global lock (bubus); tanreader-debug isolated each browse in its own process, tender_portal ends a stalled connection after two timeouts and reattaches. Not reconciled: the isolation does not fit tender_portal's in-process tabs. | `swarm/browser_agent.py` |
 | Tokens/cost per agent in every run log (RUNSTATS) | only on tanreader-debug | `swarm/orchestrator.py` |
 | Unused modules (`bidmath`, `formpilot`, `decide`, `sites.py`, `tender_model.py`) | kept and tested; runtime does not call them | delete or adopt |
