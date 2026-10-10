@@ -181,6 +181,19 @@ def merge_condition_fragments(conditions: list[dict]) -> list[dict]:
         return bool(c.get("valid_from") or c.get("valid_to"))
 
     out = [dict(c) for c in conditions]
+    # the same condition (material + validity) read on several pages: one entry with every field any copy has
+    merged: dict[tuple, dict] = {}
+    for c in out:
+        key = (norm_ref(c.get("material")), str(c.get("valid_from") or ""), str(c.get("valid_to") or ""))
+        if not (c.get("valid_from") or c.get("valid_to")):
+            merged[(key, id(c))] = c          # undated fragments are handled below
+            continue
+        have = merged.setdefault(key, c)
+        if have is not c:
+            for k, v in c.items():
+                if v and not have.get(k):
+                    have[k] = v
+    out = list(merged.values())
     for material in {norm_ref(c.get("material")) for c in out}:
         mine = [c for c in out if norm_ref(c.get("material")) == material]
         fragments = [c for c in mine if not dated(c)]

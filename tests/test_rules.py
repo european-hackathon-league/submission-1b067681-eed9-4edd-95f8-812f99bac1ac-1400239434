@@ -336,3 +336,22 @@ class ErpJobOrder(unittest.TestCase):
         order = asyncio.run(run())
         self.assertEqual(order[:4], [("record", "M-1"), ("prices", "M-1"), ("record", "M-2"), ("prices", "M-2")])
         self.assertEqual(sorted(order[4:]), [("stock", "M-1"), ("stock", "M-2")])
+
+
+class SameValidityDuplicates(unittest.TestCase):
+    def test_a_header_copy_without_scales_does_not_hide_the_priced_condition(self):
+        from agents.analyze_materials import merge_condition_fragments
+        from agents.compute_bid import valid_condition, scale_price
+        from swarm.normalize import to_datetime
+        header = {"material": "M-2", "valid_from": "01.01.2030", "valid_to": "31.12.2030", "price_unit": "100 ST",
+                  "currency": "USD", "scales": []}
+        full = {"material": "M-2", "valid_from": "01.01.2030", "valid_to": "31.12.2030", "price_unit": "100 ST",
+                "currency": "USD", "number_format": "en-US", "scales": [{"min_qty": "1", "price": "50,000"}]}
+        old = {"material": "M-2", "valid_from": "01.01.2029", "valid_to": "31.12.2029", "price_unit": "1 ST",
+               "scales": [{"min_qty": "1", "price": "1"}]}
+        on = to_datetime("2030-03-10")
+        merged = merge_condition_fragments([header, full, old])
+        self.assertEqual(len(merged), 2)                                   # the two 2030 copies became one
+        self.assertEqual(str(scale_price(valid_condition(merged, "M-2", on), 10)), "500")
+        # and without the merge, the choice itself prefers the copy with scales
+        self.assertTrue(valid_condition([header, full], "M-2", on).get("scales"))

@@ -36,7 +36,9 @@ def valid_condition(conditions: list[dict], material: str, scenario) -> dict | N
             continue
         if (start is None or start <= scenario) and (end is None or scenario <= end):
             valid.append((start or to_datetime("1970-01-01"), c))
-    return max(valid, key=lambda x: x[0])[1] if valid else None
+    # latest start wins; on equal starts a condition WITH scales beats a header copy without them (run_2746dd8a30f278e2:
+    # HZ-2170 had a 2027 header from one page and the same 2027 condition with scales from another -> position omitted)
+    return max(valid, key=lambda x: (x[0], bool(x[1].get("scales"))))[1] if valid else None
 
 
 def scale_price(condition: dict, pieces: int) -> Decimal | None:
