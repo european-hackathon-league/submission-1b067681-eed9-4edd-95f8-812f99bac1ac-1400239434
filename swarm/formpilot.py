@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 
@@ -24,6 +25,7 @@ from swarm.llm import parse_json
 log = logging.getLogger("formpilot")
 
 NO_THINKING = {"chat_template_kwargs": {"enable_thinking": False}}   # Qwen3-style switch for its reasoning mode
+MODEL_CALL_TIMEOUT = 60   # a step answer takes 1-3 s; a request hanging for minutes is retried instead
 
 SNAPSHOT_JS = r"""
 (maxText) => {
@@ -78,6 +80,8 @@ Actions, by control id:
   {"do": "tan", "id": N}                       press the button that requests a signing TAN (once, at the very end)
   {"do": "submit", "id": N}                    press the FINAL, BINDING submit button, only after the TAN is entered
 Ordinary "next", "continue", "save" or "Weiter" buttons are "click", even if they submit a form step.
+These six actions are the only ones that exist: you cannot type a URL or open another website; never invent
+addresses. After you request a TAN, stay on the page: the TAN is fetched for you and appears in DATA.tan.
 At most ONE click/tan/submit per turn, and it must be the last action. Fill everything on the page first.
 Set "finished": true only when the task is done (a confirmation is shown) or truly impossible (say why).
 Work only from what you see: never invent values; prefer the given data; if a page shows an error, fix the
@@ -122,6 +126,19 @@ async def snapshot(page, max_text: int = 3500) -> dict:
         for opt in it.get("options") or []:
             opt["text"] = plain(opt["text"])
     return snap
+
+
+TAN_WORD = re.compile(r"(?<![A-Za-z])TAN(?![A-Za-z])")
+
+
+def requests_tan(item: dict | None) -> bool:
+    """Is this control a TAN-request button? A model sometimes presses it as a plain "click"; the TAN must
+    still be fetched. "TAN" as a whole word is the convention for signing codes on German business portals."""
+    if not item or item.get("tag") not in ("button", "a", "input"):
+        return False
+    if item.get("type") in ("text", "password", "email", "number", "tel"):
+        return False                       # the TAN input field itself is not a request
+    return bool(TAN_WORD.search(" ".join(str(item.get(k) or "") for k in ("text", "label", "value"))))
 
 
 async def confirmed(page_text: str) -> bool:
@@ -205,7 +222,8 @@ async def pilot(page, llm, task: str, data: dict, *, deadline: float, allow_subm
             try:
                 # form steps need no long reasoning: without "thinking" Qwen answers ~2x faster with ~10x fewer
                 # output tokens, which also keeps us inside the portals' short session timeouts
-                reply = (await llm.chat(convo, temperature=0, extra_body=NO_THINKING)).content or ""
+                reply = (await asyncio.wait_for(llm.chat(convo, temperature=0, extra_body=NO_THINKING),
+                                                MODEL_CALL_TIMEOUT)).content or ""
             except Exception as error:  # noqa: BLE001 - an outage: retry a few times, then give up
                 failures += 1
                 log.warning("model call failed (%d): %s: %s", failures, type(error).__name__, str(error)[:300])
@@ -229,7 +247,8 @@ async def pilot(page, llm, task: str, data: dict, *, deadline: float, allow_subm
                 result.finished, result.note = True, plain(plan.get("thought", ""))
                 break
             reports = []
-            valid = {it["id"] for it in snap["items"]}
+            by_id = {it["id"]: it for it in snap["items"]}
+            valid = set(by_id)
             for action in (plan.get("actions") or [])[:12]:
                 kind = action.get("do")
                 try:
@@ -244,6 +263,11 @@ async def pilot(page, llm, task: str, data: dict, *, deadline: float, allow_subm
                 if kind == "submit" and not data.get("tan"):
                     # signing needs a TAN, so a "submit" before one is an ordinary step button
                     kind = action["do"] = "click"
+                if kind == "click" and not data.get("tan") and requests_tan(by_id.get(action["id"])):
+                    kind = action["do"] = "tan"     # a TAN request pressed as a plain click
+                if kind not in ("fill", "select", "check", "click", "tan", "submit"):
+                    reports.append(f"there is no action {kind!r}; use only fill, select, check, click, tan, submit")
+                    break
                 if kind in ("tan", "submit") and not allow_submit:
                     result.finished, result.note = True, f"dry run: stopped before {kind}"
                     return result
@@ -255,7 +279,8 @@ async def pilot(page, llm, task: str, data: dict, *, deadline: float, allow_subm
                     if kind == "tan" and get_tan:
                         tan = await get_tan(since)
                         data["tan"] = tan
-                        reports.append(f"TAN received: {tan}" if tan else "no TAN arrived yet")
+                        reports.append(f"TAN received: {tan} (now in DATA.tan)" if tan else
+                                       "no TAN arrived in time; stay on this page, do not leave it")
                     if kind == "submit":
                         result.submitted = True
                 except Exception as error:  # noqa: BLE001
