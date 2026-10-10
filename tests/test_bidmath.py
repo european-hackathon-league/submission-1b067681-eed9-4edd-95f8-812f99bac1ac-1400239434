@@ -15,6 +15,15 @@ class Parsing(unittest.TestCase):
         self.assertEqual(D("99,90 €"), Decimal("99.90"))
         self.assertEqual(D(0.1), Decimal("0.1"))
 
+    def test_invisible_padding_is_stripped(self):
+        padded = "REF​-‍12﻿3"
+        self.assertNotEqual(padded, "REF-123")
+        self.assertEqual(bm.plain(padded), "REF-123")
+        self.assertEqual(D("1.2​34,5­6"), Decimal("1234.56"))
+        out = bm.answer(bm.Bid(padded, positions=[bm.PositionFacts("1​0", "M‌-1", 1, D("1"), 1)]))
+        self.assertEqual((out["tender_reference"], out["positions"][0]["position"],
+                          out["positions"][0]["material_number"]), ("REF-123", "10", "M-1"))
+
     def test_round_half_up(self):
         self.assertEqual(bm.round_cents("2.345"), Decimal("2.35"))
         self.assertEqual(bm.round_cents("2.344999"), Decimal("2.34"))
