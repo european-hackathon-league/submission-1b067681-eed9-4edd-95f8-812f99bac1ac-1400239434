@@ -100,3 +100,27 @@ later value shifts left. Read tables cell by cell, never by splitting the row's 
   decimal separators swap between them.
 - Revision dates in the history are each tagged `(MM/TT)` or `(TT/MM)`, and the tag varies between renders of
   the same table. Normalise per row; sorting by revision number gives the wrong answer.
+
+## mail, in detail — the index is reachable without the robot check
+
+Only message **bodies** sit behind the slider. Folders, subjects and dates come back from ordinary search, so
+the whole index can be mapped first and the bodies fetched once.
+
+- Folder urls carry an explicit empty query: `/?folder=inbox&q=` and `/?folder=archive&q=`. Dropping `q=`
+  returns nothing for the archive.
+- The default inbox view lists only the signing TANs, not all 27 messages — the rest need a search.
+- Search is AND over words, capped at 20 hits: tender reference plus a subject word works
+  (`VG-2027-7093 Rabattfreigabe`). A topic can live in either folder, so search both.
+- `/tools` offers a mailbox export; it reports "Ein Export wurde nicht erstellt" until one is made.
+
+### Three traps the index alone already shows
+
+1. **Near-miss references.** `VG-2027-7093-A` is a *different* tender, and its messages shadow the real ones
+   for Rabattfreigabe, Preisindizes and Verpackungstarife. The decoys are often the **newer** of the pair, so
+   "take the latest" without an exact-reference check picks the wrong record every time.
+2. **Future-dated records.** Devisenfixing exists twice for the exact reference, 24.01 20:00 and 26.01 10:00,
+   while the scenario date is 25.01 09:00. The later one must be ignored.
+3. **Superseded approvals.** Rabattfreigabe for the exact reference exists at 18.01 12:00 and 24.01 17:00;
+   only the newer one applies, and it may carry a minimum order value condition.
+
+Resolve every key as: exact reference, authorised sender, latest date **not after the scenario date**.
