@@ -13,7 +13,7 @@ from decimal import ROUND_FLOOR, Decimal
 
 from agents.analyze_quantities import withdrawn_numbers
 from swarm import Agent, Phase, register
-from swarm.normalize import de_number, norm_ref, round_cents, to_datetime, to_decimal
+from swarm.normalize import validity_end, de_number, norm_ref, round_cents, to_datetime, to_decimal
 
 D0 = Decimal(0)
 
@@ -29,9 +29,7 @@ def valid_condition(conditions: list[dict], material: str, scenario) -> dict | N
     for c in conditions:
         if norm_ref(c.get("material")) != norm_ref(material):
             continue
-        start, end = to_datetime(c.get("valid_from")), to_datetime(c.get("valid_to"))
-        if end and end.hour == 0 and end.minute == 0 and end.second == 0:
-            end = end.replace(hour=23, minute=59, second=59)
+        start, end = to_datetime(c.get("valid_from")), validity_end(c.get("valid_to"))
         if scenario is None or ((start is None or start <= scenario) and (end is None or scenario <= end)):
             valid.append((start or to_datetime("1970-01-01"), c))
     return max(valid, key=lambda x: x[0])[1] if valid else None
@@ -122,7 +120,10 @@ def compute(inputs: dict) -> dict:
             if not per_set:
                 issues.append(f"{pos}: quantity in sets but pieces per set unknown")
                 continue
-            q = int(Decimal(q) * per_set)
+            q = (to_decimal(q) * per_set) if to_decimal(q) is not None else None
+        if to_decimal(q) is None or to_decimal(q) <= 0 or to_decimal(q) != int(to_decimal(q)):
+            issues.append(f"{pos}: quantity must be a positive integer")
+            continue
         line["pieces"] = int(q)
         if not mat:
             issues.append(f"{pos}: no material ({(matched.get(pos) or {}).get('reason')})")
@@ -134,7 +135,7 @@ def compute(inputs: dict) -> dict:
             continue
         currency = norm_ref((cond or {}).get("currency") or "EUR")
         if currency != "EUR":
-            rate = to_decimal((mail.get("fx_fixing") or {}).get(currency))
+            rate = to_decimal((mail.get("fx_by_key") or {}).get(norm_ref(cond.get("fx_key")), {}).get(currency)) if cond.get("fx_key") else to_decimal((mail.get("fx_fixing") or {}).get(currency))
             if rate is None:
                 issues.append(f"{pos}: price in {currency}, no FX rate")
                 continue
@@ -198,6 +199,20 @@ def compute(inputs: dict) -> dict:
             l["packaging_total"] = (tariff * math.ceil(n / carton)) if tariff_key else D0
         scope = (mail.get("condition_rules") or {}).get(norm_ref(l["keys"].get("konditionsgruppe"))) \
             if l["keys"].get("konditionsgruppe") else "base_only"
+        missing = []
+        if l["mass_surcharge"] is None:
+            missing.append("mass surcharge")
+        if l["packaging_total"] is None:
+            missing.append("packaging")
+        if l.get("pool_unknown"):
+            missing.append("shared setup")
+        if l.get("bonus_unknown"):
+            missing.append("project bonus")
+        if scope is None:
+            missing.append("discount scope")
+        l["pricing_complete"] = not missing
+        if missing:
+            issues.append(f"{pos}: estimated final price; unresolved: {', '.join(missing)}")
         scope = scope or "base_only"
         base_factor = (1 - d) if scope in ("base_only", "base_and_surcharge") else Decimal(1)
         sur_factor = (1 - d) if scope == "base_and_surcharge" else Decimal(1)
@@ -212,7 +227,9 @@ def compute(inputs: dict) -> dict:
 
     # 5. lead times: delivery commitment, else shared stock all-or-nothing per material
     demand: dict[str, int] = {}
-    for l in priced.values():
+    for l in lines.values():
+        if not l.get("material") or not l.get("pieces"):
+            continue
         demand[norm_ref(l["material"])] = demand.get(norm_ref(l["material"]), 0) + l["pieces"]
     stock = {norm_ref(k): v for k, v in (erp.get("stock") or {}).items()}
     for pos, l in priced.items():
@@ -269,6 +286,12 @@ class BidCalculator(Agent):
     async def run(self) -> None:
         names = ("brief", "tender", "quantities", "requirements", "materials", "erp", "discount", "mail")
         bid = compute({n: self.ctx.board.get(n) for n in names})
+        from swarm.validation import answer_issues
+        errors = answer_issues(bid["answer"], self.ctx.task.get("answer_schema"))
+        if errors:
+            bid["issues"].extend(errors)
+            self.ctx.board.error(self.name, "; ".join(errors))
+        bid["validation_errors"] = errors
         await self.ctx.board.set("bid", bid)
         await self.ctx.board.set("answer", bid["answer"])
         self.log.info("bid: %s omitted=%s issues=%s", bid["answer"], bid["omitted"], bid["issues"])

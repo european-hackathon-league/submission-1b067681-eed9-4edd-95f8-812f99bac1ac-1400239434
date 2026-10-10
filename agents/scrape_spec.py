@@ -10,7 +10,7 @@ class SpecScraper(SiteScraper):
     role = "spec"
     browser = 1
     max_steps = 32
-    hints = ("Portal habits: cookie wall after login (its accept button is not logout button); paged document "
+    hints = ("Adapt to the observed software; these are possible patterns, not requirements. Portal habits: cookie wall after login (its accept button is not logout button); paged document "
              "register; documents behind usage form (choose purpose for binding/verbindliche documents, not preview or "
              "archive; copy displayed receipt number exactly - read_page shows numbers drawn on canvas); viewers open "
              "OLDEST revision first; status and values may sit in tooltips; requirement tables paged inside iframe "

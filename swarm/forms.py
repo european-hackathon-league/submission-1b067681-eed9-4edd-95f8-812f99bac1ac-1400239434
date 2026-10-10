@@ -13,7 +13,11 @@ _FIND = r"""
     for (const f of docs[i].querySelectorAll('iframe')) { try { if (f.contentDocument) docs.push(f.contentDocument); } catch (e) {} }
     for (const el of docs[i].querySelectorAll('*')) { if (el.shadowRoot) docs.push(el.shadowRoot); }
   }
-  const visible = el => !el.closest('[hidden],[aria-hidden=true]') && !(el.closest('dialog') && !el.closest('dialog').open);
+  const visible = el => {
+    const s = el.ownerDocument.defaultView.getComputedStyle(el);
+    return !el.closest('[hidden],[aria-hidden=true]') && !(el.closest('dialog') && !el.closest('dialog').open)
+      && s.display !== 'none' && s.visibility !== 'hidden' && el.getClientRects().length > 0;
+  };
 """
 
 SET_JS = r"""(args) => {
@@ -30,7 +34,7 @@ SET_JS = r"""(args) => {
     }
     return t || c.getAttribute('aria-label') || c.placeholder || '';
   };
-  const controls = docs.flatMap(d => [...d.querySelectorAll('input,select,textarea')])
+  const controls = docs.flatMap(d => [...d.querySelectorAll('input,select,textarea,[contenteditable=true]')])
     .filter(c => c.type !== 'hidden' && visible(c));
   const w = norm(want);
   const c = controls.find(c => norm(c.name) === w) || controls.find(c => norm(labelOf(c)) === w)
@@ -51,7 +55,9 @@ SET_JS = r"""(args) => {
       const bool = /^(true|1|yes|ja|x|on|checked|false|0|no|nein|off)$/i.test(String(value).trim());
       const want = /^(true|1|yes|ja|x|on|checked)$/i.test(String(value).trim());
       if (!bool || isOn(t) !== want) t.click();
-      return {status: 'ok', name: textOf(t).slice(0, 60), set: bool ? (isOn(t) ? 'on' : 'clicked') : 'clicked'};
+      const readable = t.hasAttribute('aria-checked') || t.hasAttribute('aria-pressed') || !!t.querySelector('input[type=checkbox]');
+      return {status: bool && readable && isOn(t) === want ? 'ok' : 'unverified', name: textOf(t).slice(0, 60),
+              set: 'clicked; inspect updated state before continuing'};
     }
     return {status: 'missing', fields: controls.map(c => labelOf(c).trim() || c.name).filter(Boolean).slice(0, 30)};
   }
@@ -74,11 +80,16 @@ SET_JS = r"""(args) => {
     c.value = o.value;
   } else if (c.type === 'radio') {
     const group = controls.filter(r => r.type === 'radio' && r.name === c.name);
-    const r = group.find(r => norm(r.value) === v) || group.find(r => norm(labelOf(r)) === v) || group.find(r => norm(labelOf(r)).includes(v)) || c;
-    r.checked = true; r.dispatchEvent(new Event('change', {bubbles: true}));
-    return {status: 'ok', name: r.name, set: labelOf(r).trim()};
+    const r = group.find(r => norm(r.value) === v) || group.find(r => norm(labelOf(r)) === v);
+    if (!r) return {status: 'no-option', options: group.map(r => labelOf(r) || r.value)};
+    if (!r.checked) r.click();
+    return {status: r.checked ? 'ok' : 'unverified', name: r.name, set: labelOf(r).trim()};
   } else if (c.type === 'checkbox') {
-    c.checked = /^(true|1|yes|ja|x|on|checked)$/i.test(String(value).trim());
+    const checked = /^(true|1|yes|ja|x|on|checked)$/i.test(String(value).trim());
+    if (c.checked !== checked) c.click();
+    if (c.checked !== checked) return {status: 'unverified', name: c.name};
+  } else if (c.isContentEditable) {
+    c.focus(); c.textContent = value;
   } else if (c.type === 'range') {     // 'max' -> its maximum
     c.focus(); setValue(c, num(value) === null ? (c.max || '100') : String(num(value)));
   } else {
@@ -157,6 +168,7 @@ async def click(evaluate, label: str) -> str:
 async def fill_fields(evaluate, pairs: list[tuple[str, str]], apply_button: str = "", then_click: str = "") -> str:
     """Set the fields in order; returns a short report for the model (what was set, what failed and why)."""
     lines = []
+    failed = False
     for field, value in pairs:
         result = await evaluate(SET_JS, [field, value])
         status = result.get("status") if isinstance(result, dict) else str(result)
@@ -167,11 +179,16 @@ async def fill_fields(evaluate, pairs: list[tuple[str, str]], apply_button: str 
         if status == "ok":
             lines.append(f"{field} = {value}: ok")
         elif status == "no-option":
+            failed = True
             lines.append(f"{field} = {value}: FAILED, no such option; available: {result.get('options')}")
         elif status == "missing":
+            failed = True
             lines.append(f"{field} = {value}: FAILED, field not found; fields: {result.get('fields')}")
         else:
+            failed = True
             lines.append(f"{field} = {value}: FAILED ({status})")
-    if then_click:
+    if then_click and not failed:
         lines.append(f"click '{then_click}': {await click(evaluate, then_click)}")
+    elif then_click:
+        lines.append("Did not advance: repair or verify the fields above, then continue from the current page.")
     return "\n".join(lines)

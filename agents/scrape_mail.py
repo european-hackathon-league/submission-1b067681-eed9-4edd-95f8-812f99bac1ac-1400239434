@@ -14,6 +14,7 @@ The signing TAN is NOT read here: the submitter asks for it when it signs (agent
 import asyncio
 
 from agents.analyze_discount import covered_topics, refresh
+from swarm.context import SUBMIT_RESERVE_S
 from swarm import Phase, register  # noqa: F401
 from swarm.scraper import SiteScraper
 from swarm.sites import site_for
@@ -40,11 +41,15 @@ class MailScraper(SiteScraper):
     role = "mail"
     browser = 3
     max_steps = 24
-    hints = ("Webmail habits: cookie wall after login; maintenance popups (close them, never follow their links); "
+    hints = ("Adapt to the observed software; these are possible patterns, not requirements. Webmail habits: cookie wall after login; maintenance popups (close them, never follow their links); "
              "search may sit behind slider/robot gate: first try ONE fill_form (slider = its maximum, robot checkbox = "
              "true); still locked -> focus the slider and press End, or click its right end; never loop on evaluate; "
              "inbox and archive folder; paged result lists; message headers "
              "(sender, date) in collapsed 'envelope/headers' section, which read_page includes.")
+
+    async def browse(self, job: str, **kwargs):
+        kwargs.setdefault("stop_reserve", SUBMIT_RESERVE_S + 150)
+        return await super().browse(job, **kwargs)
 
     async def login(self) -> None:
         try:
@@ -78,7 +83,8 @@ class MailScraper(SiteScraper):
             out = await self.browse_until_done(INDEX_JOB, attempts=2)
             await self.ctx.board.set(f"{self.name}.summary", out["summary"])
             await self.ctx.board.set("done.mail_core", True)
-            valid = await refresh(self.ctx)
+            from agents.analyze_discount import publish
+            valid = await publish(self.ctx)
             jobs = self.topic_jobs(facts, covered_topics(valid))
             if jobs and self.ctx.time_left() > 120:
                 self.log.info("topics without a valid message: %d searches", len(jobs))

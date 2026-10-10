@@ -2,8 +2,12 @@
 import asyncio
 import json
 import re
+import os
+
+CALL_TIMEOUT_S = float(os.environ.get("SWARM_MODEL_TIMEOUT_S", "55"))
 
 import models
+from openai import APIConnectionError, APIStatusError
 
 
 def parse_json(text: str):
@@ -20,7 +24,7 @@ def parse_json(text: str):
 
 
 class LLM:
-    def __init__(self, max_concurrent: int = 24):
+    def __init__(self, max_concurrent: int = 16):
         self._sem = asyncio.Semaphore(max_concurrent)   # team limit is 32 concurrent Qwen calls
         self._client = None
         self.calls = 0
@@ -28,7 +32,7 @@ class LLM:
 
     @property
     def client(self):
-        self._client = self._client or models.qwen()
+        self._client = self._client or models.qwen().with_options(timeout=CALL_TIMEOUT_S, max_retries=0)
         return self._client
 
     async def chat(self, messages: list[dict], *, tools: list[dict] | None = None, model: str = models.QWEN_MODEL,
@@ -42,7 +46,20 @@ class LLM:
         if tools:
             args["tools"] = tools
         async with self._sem:
-            reply = await self.client.chat.completions.create(**args)
+            # Bound each attempt, including providers that leave a connection open without replying.
+            for attempt in range(2):
+                try:
+                    async with asyncio.timeout(CALL_TIMEOUT_S):
+                        reply = await self.client.chat.completions.create(**args)
+                    break
+                except (TimeoutError, models.httpx.TransportError, APIConnectionError):
+                    if attempt:
+                        raise
+                    await asyncio.sleep(0.5)
+                except APIStatusError as error:
+                    if attempt or (error.status_code < 500 and error.status_code != 429):
+                        raise
+                    await asyncio.sleep(0.5)
         self.calls += 1
         if reply.usage:
             self.tokens["prompt"] += reply.usage.prompt_tokens or 0

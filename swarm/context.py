@@ -16,7 +16,6 @@ FINAL_MARGIN_S = 40
 # start, so test runs show the timing (and the follow-ups that fit) of a scored run. The run's real expiry still wins
 # when it is earlier.
 RUN_LIMIT_S = float(os.environ.get("SWARM_RUN_LIMIT_S", 1200))
-_STARTED = time.time()
 
 
 @dataclass
@@ -27,6 +26,7 @@ class Context:
     pool: object                      # swarm.browser_pool.BrowserPool (None in unit tests)
     scored: bool = False              # True in a real run (has a run token); False for local scouting
     t0: float = field(default_factory=time.time)
+    monotonic_start: float = field(default_factory=time.monotonic)
     _locks: dict = field(default_factory=dict, repr=False)
     shared: dict = field(default_factory=dict, repr=False)   # in-memory objects agents share (queues); never dumped
 
@@ -49,15 +49,15 @@ class Context:
         left = contract.seconds_left(self.task)
         simulated = os.environ.get("SWARM_DEADLINE_S")          # local runs: pretend the run lasts this long
         if left == float("inf") and simulated and not self.scored:
-            return self.t0 + float(simulated) - time.time()
-        return min(left, _STARTED + RUN_LIMIT_S - time.time()) if RUN_LIMIT_S > 0 else left
+            return float(simulated) - self.elapsed()
+        return min(left, RUN_LIMIT_S - self.elapsed()) if RUN_LIMIT_S > 0 else left
 
     def time_left(self) -> float:
         """Seconds of collecting/analysing left (run clock minus what SUBMIT needs)."""
         return self.seconds_left() - SUBMIT_RESERVE_S
 
     def elapsed(self) -> float:
-        return time.time() - self.t0
+        return time.monotonic() - self.monotonic_start
 
     def lock(self, name: str) -> asyncio.Lock:
         """A named lock shared by all agents of this run (e.g. so only one agent resolves the site roles)."""

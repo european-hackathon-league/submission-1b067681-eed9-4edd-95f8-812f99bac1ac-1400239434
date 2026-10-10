@@ -22,7 +22,7 @@ class TenderScraper(SiteScraper):
     role = "tender"
     browser = 0
     max_steps = 28
-    hints = ("Portal habits: cookie wall after login; error pages that go away on retry; survey popups and decoy "
+    hints = ("Adapt to the observed software; these are possible patterns, not requirements. Portal habits: cookie wall after login; error pages that go away on retry; survey popups and decoy "
              "'open'/'accept' links leading away (close popups with their x button); documents may need expression of "
              "interest first, may open in viewers/iframes or ZIP downloads (prefer viewer); Q&A list paged, answers in "
              "collapsed rows inside iframes; dates may be in other timezone.")

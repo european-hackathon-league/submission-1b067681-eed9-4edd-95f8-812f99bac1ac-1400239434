@@ -31,7 +31,7 @@ JOB_STEPS = 16
 MAX_JOBS = 6             # per planning call
 MAX_JOBS_PER_ROLE = 3
 ANALYSIS_S = 60          # jobs stop this long before collect ends, so the analyses can still run on their pages
-SETTLE_S = 240           # a site whose analysis has not finished this long after its first pass is treated as done
+SETTLE_S = 45           # a site whose analysis has not finished this long after its first pass is treated as done
 
 READY = {"tender": ("done.tender", "quantities"), "spec": ("done.spec", "requirements_final"),
          "erp": ("done.erp", "materials"), "mail": ("done.mail", "mail_final")}
@@ -111,6 +111,7 @@ def find_gaps(board, ready: set[str], saved_topics: dict[str, list[str]]) -> lis
                 gap("mail", f"mail {section} {norm_ref(value)}", f"{label} mail for key {value}")
         m = materials.get(pos) or {}
         if not m:
+            gap("erp", f"erp search {group or ref}", f"Find materials for requirement {ref}: {_attrs(req)}")
             continue
         mat = m.get("material")
         if not mat:
@@ -188,6 +189,7 @@ class CollectionCoordinator(Agent):
     def __init__(self, ctx):
         super().__init__(ctx)
         self.tried: set[str] = set()
+        self.attempts: dict[str, int] = {}
         self.running: dict[asyncio.Task, str] = {}      # follow-up job -> its site role
         self.history: list[dict] = []
         self.first_pass_end: dict[str, float] = {}
@@ -244,34 +246,47 @@ class CollectionCoordinator(Agent):
                           str(out.get("summary"))[:200])
         except Exception as error:
             self.ctx.board.error(self.name, f"follow-up {job['gaps']}: {error}")
+            self.tried.difference_update(job["gaps"])
+        if not locals().get("out", {}).get("done"):
+            self.tried.difference_update(job["gaps"])
         await refresh(self.ctx, {job["role"]})
 
     async def run(self) -> None:
-        while True:
-            ready = self.ready()
-            if self.ctx.time_left() > ROUND_MIN_S:
-                gaps = [g for g in find_gaps(self.ctx.board, ready, self.saved_topics()) if g["id"] not in self.tried]
-                busy = set(self.running.values())
-                gaps = [g for g in gaps if g["role"] not in busy]     # a site with follow-ups running: wait for them
-                if gaps:
-                    self.log.info("gaps: %s", [g["id"] for g in gaps])
-                    self.tried |= {g["id"] for g in gaps}
-                    try:
-                        jobs = await self.plan(gaps)
-                    except Exception as error:
-                        self.log.warning("planning failed: %s", error)
-                        jobs = []
-                    for job in jobs:
-                        task = asyncio.create_task(self.work(job))
-                        self.running[task] = job["role"]
-                        task.add_done_callback(lambda t: self.running.pop(t, None))
-            all_done = self.settled() == set(READY)
-            if self.running:
-                await asyncio.wait(list(self.running), timeout=5)
-                continue
-            if all_done or self.ctx.time_left() <= ROUND_MIN_S:
-                gaps = find_gaps(self.ctx.board, set(READY), self.saved_topics())
-                await self.ctx.board.set("gaps", gaps)
-                self.log.info("collect complete; open gaps: %s", [g["id"] for g in gaps])
-                return
-            await asyncio.sleep(5)
+        try:
+            while True:
+                ready = self.settled()
+                if self.ctx.time_left() > ROUND_MIN_S:
+                    gaps = [g for g in find_gaps(self.ctx.board, ready, self.saved_topics()) if g["id"] not in self.tried and self.attempts.get(g["id"], 0) < 2]
+                    busy = set(self.running.values())
+                    gaps = [g for g in gaps if g["role"] not in busy]     # a site with follow-ups running: wait for them
+                    if gaps:
+                        self.log.info("gaps: %s", [g["id"] for g in gaps])
+                        try:
+                            jobs = await self.plan(gaps)
+                        except Exception as error:
+                            self.log.warning("planning failed: %s", error)
+                            jobs = []
+                        for job in jobs:
+                            for gid in job["gaps"]:
+                                self.attempts[gid] = self.attempts.get(gid, 0) + 1
+                            self.tried.update(job["gaps"])
+                            task = asyncio.create_task(self.work(job))
+                            self.running[task] = job["role"]
+                            task.add_done_callback(lambda t: self.running.pop(t, None))
+                all_done = self.settled() == set(READY)
+                if self.running:
+                    await asyncio.wait(list(self.running), timeout=5)
+                    continue
+                pending = [g for g in find_gaps(self.ctx.board, ready, self.saved_topics())
+                           if g["id"] not in self.tried and self.attempts.get(g["id"], 0) < 2]
+                if (all_done and not pending) or self.ctx.time_left() <= ROUND_MIN_S:
+                    gaps = find_gaps(self.ctx.board, set(READY), self.saved_topics())
+                    await self.ctx.board.set("gaps", gaps)
+                    self.log.info("collect complete; open gaps: %s", [g["id"] for g in gaps])
+                    return
+                await asyncio.sleep(5)
+        finally:
+            tasks = list(self.running)
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)

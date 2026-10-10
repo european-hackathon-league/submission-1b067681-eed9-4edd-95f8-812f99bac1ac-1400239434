@@ -24,10 +24,10 @@ def to_decimal(text, locale: str | None = None) -> Decimal | None:
     separator followed by exactly three digits is ambiguous; it is read as a thousands separator only when the other
     separator style is impossible (e.g. '1.234' -> 1234 for de-DE hints, else 1.234).
     """
-    if text is None:
+    if text is None or isinstance(text, bool):
         return None
     if isinstance(text, (int, float, Decimal)):
-        return Decimal(str(text))
+        return Decimal(str(text)) if Decimal(str(text)).is_finite() else None
     s = strip_invisible(text)
     hint = re.search(r"\b(de-DE|en-US|de|en)\b", s, re.I)
     loc = (hint.group(1) if hint else (locale or "")).lower()
@@ -46,14 +46,15 @@ def to_decimal(text, locale: str | None = None) -> Decimal | None:
     elif num.count(".") > 1:
         num = num.replace(".", "")
     try:
-        return Decimal(num)
+        result = Decimal(num)
+        return result if result.is_finite() else None
     except InvalidOperation:
         return None
 
 
 def to_int(text, locale: str | None = None) -> int | None:
     value = to_decimal(text, locale)
-    return int(value) if value is not None else None
+    return int(value) if value is not None and value == value.to_integral_value() else None
 
 
 def round_cents(value: Decimal) -> Decimal:
@@ -116,3 +117,11 @@ def _safe(y, m, d, hh=0, mm=0, ss=0):
         return datetime(y, m, d, hh, mm, ss, tzinfo=timezone.utc)
     except ValueError:
         return None
+
+
+def validity_end(value):
+    """Extend date-only endpoints; preserve explicitly stated midnight timestamps."""
+    dt = to_datetime(value)
+    if dt and not re.search(r"\d{1,2}:\d{2}|T\d", str(value)):
+        return dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+    return dt

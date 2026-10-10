@@ -26,11 +26,10 @@ from swarm.normalize import norm_ref
 from swarm.scraper import SiteScraper
 from swarm.sites import site_for
 
-ANALYSIS_TIME_S = 120    # what the material matcher needs after the last ERP page
+ANALYSIS_TIME_S = 60    # what the material matcher needs after the last ERP page
 ERP_TABS = 8             # parallel ERP jobs at most (main tab included)
-MAX_CANDIDATES = 3       # per catalogue group: materials opened at most
 
-HINTS = ("ERP habits: SAP-style transaction codes (start page / menu lists transactions for material display, stock "
+HINTS = ("Adapt to the observed software; these are possible patterns, not requirements. ERP habits: SAP-style transaction codes (start page / menu lists transactions for material display, stock "
          "overview, price conditions); system notice or access gate after login (copy displayed number exactly - "
          "read_page shows numbers drawn on canvas -, confirm, continue; slider/robot gate passes with ONE fill_form: "
          "slider = its maximum (e.g. 100), robot checkbox = true, then the number and confirmation checkbox, then_click "
@@ -113,11 +112,12 @@ class ErpScraper(SiteScraper):
         super().__init__(ctx)
         self.queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
         self.pending = 0
+        self.producer_done = False
         self.seen: set = set()
         self._order = itertools.count()
 
     def add(self, priority: int, job: tuple) -> None:
-        key = job[:2] if job[0] != "search" else ("search", job[1]["group"])
+        key = job[:2] if job[0] != "search" else ("search", job[1]["group"], repr(job[1]["requirements"]))
         if key in self.seen:
             return
         self.seen.add(key)
@@ -134,12 +134,10 @@ class ErpScraper(SiteScraper):
         if job[0] == "search":
             item = job[1]
             await self.browse_until_done(search_goal(item), attempts=2, tab=tab, max_steps=14, stop_reserve=stop)
-            found = search_candidates(await extract_erp(self.ctx), item)[:MAX_CANDIDATES * len(item["requirements"])]
+            found = search_candidates(await extract_erp(self.ctx), item)
             self.log.info("search %s: candidates %s", item["group"], found)
             for material in found:
                 self.add(RECORD, ("record", material, item))
-                self.add(PRICES, ("prices", material, item))
-                self.add(STOCK, ("stock", material, item))
             return
         kind, material, item = job
         if kind != "record" and await self.blocked(material):
@@ -147,6 +145,9 @@ class ErpScraper(SiteScraper):
             return
         await self.browse_until_done(material_goal(kind, material, item), attempts=2, tab=tab, max_steps=16,
                                      stop_reserve=stop)
+        if kind == "record" and not await self.blocked(material):
+            self.add(PRICES, ("prices", material, item))
+            self.add(STOCK, ("stock", material, item))
 
     async def worker(self, tab: Tab | None) -> None:
         """Takes jobs until the queue is empty and no running job can add more (or time is up)."""
@@ -155,7 +156,7 @@ class ErpScraper(SiteScraper):
                 try:
                     _, _, job = self.queue.get_nowait()
                 except asyncio.QueueEmpty:
-                    if self.pending <= 0:
+                    if self.pending <= 0 and self.producer_done:
                         return
                     await asyncio.sleep(1.0)
                     continue
@@ -177,8 +178,20 @@ class ErpScraper(SiteScraper):
                 await self.browse("Log in, accept cookies, pass any system notice or access gate, open material search "
                                   "help of material display transaction. Do NOT search yet. done once search form open.",
                                   max_steps=12)
-            for item in await _items(self.ctx):
-                self.add(SEARCH, ("search", item))
-            await asyncio.gather(self.worker(None), *(self.worker(Tab(self.browser)) for _ in range(ERP_TABS - 1)))
+            async def produce():
+                try:
+                    while self.ctx.time_left() > ANALYSIS_TIME_S:
+                        for item in await _items(self.ctx):
+                            self.add(SEARCH, ("search", item))
+                        if self.ctx.board.get("requirements_final"):
+                            return
+                        await asyncio.sleep(2)
+                finally:
+                    self.producer_done = True
+            async with asyncio.TaskGroup() as group:
+                group.create_task(produce())
+                group.create_task(self.worker(None))
+                for _ in range(ERP_TABS - 1):
+                    group.create_task(self.worker(Tab(self.browser)))
         finally:
             await self.ctx.board.set("done.erp", True)

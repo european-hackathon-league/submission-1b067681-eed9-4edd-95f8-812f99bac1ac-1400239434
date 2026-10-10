@@ -19,7 +19,7 @@ from datetime import datetime
 
 from swarm import Agent, Phase, register
 from swarm.extract import extract, page_block, pages
-from swarm.normalize import norm_ref, to_datetime, to_decimal
+from swarm.normalize import validity_end, norm_ref, to_datetime, to_decimal
 
 EPOCH = to_datetime("1970-01-01T00:00:00Z")
 log = logging.getLogger("DiscountAnalyzer")
@@ -61,12 +61,12 @@ def valid_messages(messages: list[dict], ref: str, scenario: datetime | None, se
         if m.get("is_draft") in (True, "true") or norm_ref(m.get("reference")) != norm_ref(ref):
             continue
         want = _local(senders.get(m.get("topic"), ""))
-        if want and _local(m.get("sender")) != want:
+        if not want or _local(m.get("sender")) != want:
             continue
-        if domain and _domain(m.get("sender")) and _domain(m.get("sender")) != domain:
+        if not domain or _domain(m.get("sender")) != domain:
             continue
         date = to_datetime(m.get("date"))
-        if scenario and date and date > scenario:
+        if not ref or scenario is None or date is None or date > scenario:
             continue
         out.append(m)
     return sorted(out, key=lambda m: to_datetime(m.get("date")) or EPOCH)
@@ -96,18 +96,26 @@ def summarise(messages: list[dict], scenario: datetime | None) -> dict:
             "project_bonus": {k: [{"from": s(b.get("from_eur")) or "0", "to": s(b.get("to_eur")), "percent": s(b.get("percent"))}
                                   for b in e.get("bands") or []]
                               for k, e in latest_entries(messages, "project_bonus").items()},
-            "fx_fixing": {}, "price_indices": {}}
-    for m in messages:                                   # newest message last, so it wins
-        for e in m.get("entries") or []:
-            if m.get("topic") == "fx_fixing" and e.get("currency"):
-                mail["fx_fixing"][norm_ref(e["currency"])] = s(e.get("eur_per_currency_unit"))
-            if m.get("topic") == "price_indices" and e.get("index"):
-                start, end = to_datetime(e.get("valid_from")), to_datetime(e.get("valid_to"))
-                if end and end.hour == 0 and end.minute == 0:
-                    end = end.replace(hour=23, minute=59, second=59)
-                inside = scenario is None or ((start is None or start <= scenario) and (end is None or scenario <= end))
-                if inside:
-                    mail["price_indices"][norm_ref(e["index"])] = s(e.get("eur_per_kg"))
+            "fx_fixing": {}, "fx_by_key": {}, "price_indices": {}}
+    fx_entries = latest_entries(messages, "fx_fixing")
+    currencies = {}
+    for key, e in fx_entries.items():
+        currency = norm_ref(e.get("currency"))
+        if currency:
+            rate = s(e.get("eur_per_currency_unit"))
+            mail["fx_by_key"].setdefault(key, {})[currency] = rate
+            currencies.setdefault(currency, []).append(rate)
+    for currency, rates in currencies.items():
+        if len(set(rates)) == 1:
+            mail["fx_fixing"][currency] = rates[0]
+    index_messages = [m for m in messages if m.get("topic") == "price_indices"]
+    # Pick the governing message first; never resurrect an older rate outside its replacement's windows.
+    if index_messages:
+        for e in index_messages[-1].get("entries") or []:
+            start, end = to_datetime(e.get("valid_from")), validity_end(e.get("valid_to"))
+            inside = scenario is not None and (start is None or start <= scenario) and (end is None or scenario <= end)
+            if inside and e.get("index"):
+                mail["price_indices"][norm_ref(e["index"])] = s(e.get("eur_per_kg"))
     return mail
 
 
@@ -116,32 +124,44 @@ async def extract_new(ctx) -> dict:
     cache = ctx.shared.setdefault("mail.extracted", {})
     async with ctx.lock("mail.extract"):
         todo = [e for e in pages(ctx, "mail") if (e.data.get("url"), hash(e.data.get("text", ""))) not in cache]
-        replies = await asyncio.gather(*(extract(ctx, INSTRUCTION, SHAPE, [page_block(e)]) for e in todo),
-                                       return_exceptions=True)
-        for e, r in zip(todo, replies):
-            cache[(e.data.get("url"), hash(e.data.get("text", "")))] = r if isinstance(r, dict) else {}
+        async def one(e):
+            key = (e.data.get("url"), hash(e.data.get("text", "")))
+            try:
+                result = await extract(ctx, INSTRUCTION, SHAPE, [page_block(e)], list_key="messages")
+                if result.get("_incomplete"):
+                    return
+                cache[key] = result
+                await publish(ctx)  # each completed message survives cancellation of a slower sibling
+            except Exception as error:
+                ctx.board.error("DiscountAnalyzer", f"mail extraction: {type(error).__name__}")
+        await asyncio.gather(*(one(e) for e in todo))
     return cache
 
 
 async def refresh(ctx) -> list[dict]:
     """Extract new mail pages and publish discount, mail rules and messages again; returns the valid messages."""
-    cache = await extract_new(ctx)
+    await extract_new(ctx)
+    return await publish(ctx)
+
+
+async def publish(ctx) -> list[dict]:
+    cache = ctx.shared.setdefault("mail.extracted", {})
     facts = ctx.board.get("brief") or {}
     ref, scenario = facts.get("tender_reference", ""), to_datetime(facts.get("scenario_date"))
     senders = {k: v for k, v in (facts.get("authorized_senders") or {}).items() if v}
     if facts.get("director_sender"):
         senders.setdefault("discount_approval", facts["director_sender"])
     owners = [r.get("mailbox_owner") for r in cache.values() if r.get("mailbox_owner")]
-    domain = _domain(owners[0]) if owners else ""
+    domain = _domain(owners[0]) if owners else _domain(ctx.board.get("mailbox"))
     messages = [m for r in cache.values() for m in (r.get("messages") or [])]
     unique = {(m.get("subject"), m.get("date"), m.get("sender")): m for m in messages}
     valid = valid_messages(list(unique.values()), ref, scenario, senders, domain)
-    approvals = [m for m in valid if m.get("topic") == "discount_approval" and m.get("discount_percent") is not None]
+    approvals = [m for m in valid if m.get("topic") == "discount_approval" and to_decimal(m.get("discount_percent")) is not None]
     if approvals:
         a = approvals[-1]
         discount = {"percent": format(to_decimal(a["discount_percent"]).normalize(), "f"),
                     "min_order_value": (format(to_decimal(a["min_order_value_eur"]).normalize(), "f")
-                                        if a.get("min_order_value_eur") not in (None, "") else None),
+                                        if to_decimal(a.get("min_order_value_eur")) is not None else None),
                     "source": f"{a.get('subject')} {a.get('date')} {a.get('sender')}"}
     else:
         discount = {"percent": "0", "min_order_value": None, "source": "no valid approval found"}
@@ -163,8 +183,15 @@ class DiscountAnalyzer(Agent):
     phase = Phase.COLLECT
 
     async def run(self) -> None:
-        await self.ctx.board.wait_for(key="done.mail_core", timeout=max(1.0, self.ctx.time_left()))
-        await refresh(self.ctx)
-        await self.ctx.board.wait_for(key="done.mail", timeout=max(1.0, self.ctx.time_left()))
-        await refresh(self.ctx)
-        await self.ctx.board.set("mail_final", True)
+        await self.ctx.board.wait_for(key="brief", timeout=max(1, self.ctx.time_left()))
+        await publish(self.ctx)
+        seen = -1
+        while self.ctx.time_left() > 0:
+            count = len(pages(self.ctx, "mail"))
+            if count != seen:
+                await refresh(self.ctx)
+                seen = count
+            if self.ctx.board.get("done.mail") is not None:
+                await self.ctx.board.set("mail_final", True)
+                return
+            await asyncio.sleep(2)

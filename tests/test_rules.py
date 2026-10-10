@@ -204,9 +204,10 @@ class Matching(unittest.TestCase):
                 "B": {"material": "B", "bore": "50", "stroke": "300", "pressure": "160", "mounting": "Flansch",
                       "certification": "C-2", "kataloggruppe": "G", "is_active": True}}  # contradicts
         out = match_positions(tender, reqs, mats, {}, "")["1"]
-        self.assertEqual((out["material"], out["unverified"]), ("A", ["certification"]))
+        self.assertIsNone(out["material"])
+        self.assertEqual(out["candidates"][0]["unverified"], ["certification"])
 
-    def test_usable_travel_without_reserve_takes_shortest_covering_stroke(self):
+    def test_usable_travel_without_reserve_remains_unverified(self):
         tender = {"positions": [{"position": "1", "requirement_ref": "Z"}]}
         reqs = {"Z": {"bore": "50", "stroke": "300", "stroke_kind": "usable", "pressure": "160", "mounting": "F",
                       "certification": "keine", "kataloggruppe": "G"}}
@@ -214,7 +215,7 @@ class Matching(unittest.TestCase):
                 "is_active": True}
         mats = {"S": {"material": "S", "stroke": "290", **base}, "M": {"material": "M", "stroke": "320", **base},
                 "L": {"material": "L", "stroke": "360", **base}}
-        self.assertEqual(match_positions(tender, reqs, mats, {}, "")["1"]["material"], "M")
+        self.assertIsNone(match_positions(tender, reqs, mats, {}, "")["1"]["material"])
         mail = {"technical_release": {"K": {"revision": "R", "reserve_mm_per_end": "30"}}}
         reqs["Z"]["reserve_key"] = "K"
         self.assertEqual(match_positions(tender, reqs, mats, mail, "R")["1"]["material"], "L")

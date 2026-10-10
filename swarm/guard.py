@@ -135,7 +135,7 @@ CLICK_JS = r"""(a) => {
     const href = b.getAttribute('href') || '';
     if (href && !/^(#|javascript:)/i.test(href)) {
       const to = new URL(href, location.href);
-      if (to.origin !== location.origin || to.pathname !== location.pathname) return 'link';
+      if (to.origin !== location.origin || (to.pathname !== location.pathname && !a.allow_navigation)) return 'link';
     }
   }
   b.click();
@@ -168,7 +168,7 @@ def signature(item: dict) -> str:
     """Item identity across pages and tabs: its text without digits (codes, dates, counters change) and its buttons."""
     text = re.sub(r"\d+", "#", item.get("text", "").lower())
     text = re.sub(r"\s+", " ", text)[:1200]
-    buttons = "|".join(sorted(re.sub(r"\d+", "#", b.get("label", "").lower()) for b in item.get("buttons") or []))
+    buttons = "|".join(re.sub(r"\d+", "#", b.get("label", "").lower()) + str(bool(b.get("away"))) for b in item.get("buttons") or [])
     return f"{item.get('kind')}:{text}:{buttons}:{len(item.get('fields') or [])}"
 
 
@@ -297,7 +297,8 @@ class PopupGuard:
                 try:
                     if decision["action"] == "click":
                         button = pick_button(decision, item)
-                        result = await asyncio.wait_for(evaluate(CLICK_JS, {"id": item["id"], "button": button}),
+                        result = await asyncio.wait_for(evaluate(CLICK_JS, {"id": item["id"], "button": button,
+                                                                          "allow_navigation": decision.get("kind") == "error"}),
                                                         EVAL_TIMEOUT_S)
                         label = item["buttons"][button]["label"]
                     else:

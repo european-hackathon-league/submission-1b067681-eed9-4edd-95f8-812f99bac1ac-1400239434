@@ -78,24 +78,52 @@ async def run_swarm(task: dict, playwright, scored: bool, env=os.environ):
     if preload and not scored:                       # never replay data in a scored run
         board = Blackboard.load(Path(preload))
     ctx = Context(task=task, board=board, llm=LLM(), pool=BrowserPool(playwright), scored=scored)
-    classes = select(discover(), env.get("SWARM_ONLY"))
+    classes = select(discover(), None if scored else env.get("SWARM_ONLY"))
+    from swarm.browser_agent import _MAIN_TABS, _OWNERS, _OPENERS
+    from swarm import guard
+    _MAIN_TABS.clear()
+    _OWNERS.clear()
+    _OPENERS.clear()
+    guard._DECISIONS.clear()
+    guard._PENDING.clear()
     log.info("agents: %s", [c.__name__ for c in classes])
-    for phase in Phase:
-        agents = [c(ctx) for c in classes if c.phase == phase]
-        if not agents:
-            continue
-        bound = phase != Phase.SUBMIT
-        if phase not in ALWAYS and ctx.time_left() <= 0:
-            log.warning("skipping phase %s: out of time", phase.name)
-            continue
-        log.info("phase %s: %s (%.0fs left)", phase.name, [a.name for a in agents], ctx.seconds_left())
-        await asyncio.gather(*(_run_agent(a, bound) for a in agents))
-        if phase == Phase.COLLECT:
-            log.info("board after collect (%.0fs left): %s", ctx.seconds_left(), board_summary(board))
-        if not scored:
-            board.dump(BOARD_DUMP)
-    log.info("model calls: %d tokens: %s errors: %d", ctx.llm.calls, ctx.llm.tokens, len(board.errors))
-    if (task.get("submission") or {}).get("kind", "api") != "api":
-        log.info("answer (entered on the website): %s", board.get("answer"))
-        return None                      # a "site" submission was entered by the submitter agent
-    return board.get("answer")
+    try:
+        await ctx.pool.prepare()
+        for phase in Phase:
+            agents = [c(ctx) for c in classes if c.phase == phase]
+            if not agents:
+                continue
+            bound = phase != Phase.SUBMIT
+            if phase not in ALWAYS and ctx.time_left() <= 0:
+                log.warning("skipping phase %s: out of time", phase.name)
+                continue
+            log.info("phase %s: %s (%.0fs left)", phase.name, [a.name for a in agents], ctx.seconds_left())
+            await asyncio.gather(*(_run_agent(a, bound) for a in agents))
+            if phase == Phase.COLLECT:
+                # Guard classification tasks are collection work too. None may survive into signing.
+                pending = list(guard._TASKS)
+                for t in pending:
+                    t.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
+                from agents import analyze_discount, analyze_materials
+                await analyze_discount.publish(ctx)
+                await analyze_materials.publish(ctx)
+                log.info("board after collect (%.0fs left): %s", ctx.seconds_left(), board_summary(board))
+            if not scored:
+                board.dump(BOARD_DUMP)
+        log.info("model calls: %d tokens: %s errors: %d", ctx.llm.calls, ctx.llm.tokens, len(board.errors))
+        if (task.get("submission") or {}).get("kind", "api") != "api":
+            receipt = board.get("submission") or {}
+            if not receipt.get("accepted"):
+                raise RuntimeError("No confirmed portal receipt; the run did not verify submission")
+            log.info("portal acceptance confirmed: %s", receipt.get("reference"))
+            return None                      # a "site" submission was entered by the submitter agent
+        return board.get("answer")
+    finally:
+        pending = list(guard._TASKS)
+        for t in pending:
+            t.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        await ctx.pool.close()
+        if ctx.llm._client is not None:
+            await ctx.llm._client.close()

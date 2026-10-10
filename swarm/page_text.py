@@ -13,9 +13,12 @@ EXTRACT_JS = r"""(opts) => {
   const BLOCK = /^(P|DIV|SECTION|ARTICLE|MAIN|ASIDE|HEADER|FOOTER|NAV|UL|OL|LI|TABLE|THEAD|TBODY|TR|H[1-6]|DL|DT|DD|FORM|FIELDSET|LEGEND|DETAILS|SUMMARY|PRE|BLOCKQUOTE|CAPTION|LABEL|FIGURE|BR|HR)$/;
   const out = [];
   const push = s => { if (s) out.push(s); };
-  const hiddenForPeople = el => el.hasAttribute('hidden') || el.getAttribute('aria-hidden') === 'true'
-    || (el.tagName === 'DIALOG' && !el.open)
-    || (el.style && el.style.display === 'none' && el.getAttribute('role') !== 'tooltip');
+  const hiddenForPeople = el => {
+    if (el.hasAttribute('hidden') || el.getAttribute('aria-hidden') === 'true' || (el.tagName === 'DIALOG' && !el.open)) return true;
+    const win = el.ownerDocument.defaultView;
+    const s = win && win.getComputedStyle(el);
+    return s && el.getAttribute('role') !== 'tooltip' && (s.display === 'none' || s.visibility === 'hidden');
+  };
   const walk = (node, depth) => {
     if (node.nodeType === 3) { push(node.nodeValue); return; }
     if (node.nodeType !== 1) return;
@@ -47,6 +50,7 @@ EXTRACT_JS = r"""(opts) => {
     if (BLOCK.test(tag)) push('\n');
     if (tag === 'SUMMARY') push('▸ ');
     for (const child of el.childNodes) walk(child, depth);
+    if (el.shadowRoot) for (const child of el.shadowRoot.childNodes) walk(child, depth);
     if (tag === 'A' && el.closest('table, ul, ol, nav, [role=list], [role=row], [role=grid]')) {
       const href = el.getAttribute('href') || '';      // list/table links: the model can open them by URL
       if (href && !/^(#|javascript:|mailto:)/i.test(href)) push(` <${href}>`);
@@ -66,10 +70,11 @@ NEXT_JS = r"""(label) => {
   const docs = [document];
   for (let i = 0; i < docs.length && i < 20; i++) {
     for (const f of docs[i].querySelectorAll('iframe')) { try { if (f.contentDocument) docs.push(f.contentDocument); } catch (e) {} }
+    for (const el of docs[i].querySelectorAll('*')) if (el.shadowRoot) docs.push(el.shadowRoot);
   }
   for (const doc of docs) {
     for (const el of doc.querySelectorAll('a[href], button')) {
-      if (el.disabled || el.closest('[hidden],[aria-hidden=true]')) continue;
+      if (el.disabled || el.getAttribute('aria-disabled') === 'true' || el.closest('[hidden],[aria-hidden=true]') || !el.getClientRects().length) continue;
       if (norm(el.textContent) === want || norm(el.getAttribute('aria-label')) === want) { el.click(); return 'clicked'; }
     }
   }

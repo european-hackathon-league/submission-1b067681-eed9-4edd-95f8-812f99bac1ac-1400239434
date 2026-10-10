@@ -85,14 +85,20 @@ class Orchestration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(order, ["collect", "analyze sees 1", "submit"])
         self.assertEqual(answer, {"ok": True})
 
-    async def test_site_submission_returns_nothing_to_post(self):
-        answer = await self.run_with(make_agents([]), task={**TASK, "submission": {"kind": "site"}})
-        self.assertIsNone(answer)
+    async def test_site_submission_requires_receipt(self):
+        task = {**TASK, "submission": {"kind": "site"}}
+        with self.assertRaisesRegex(RuntimeError, "No confirmed portal receipt"):
+            await self.run_with(make_agents([]), task=task)
+        class Confirmed(Agent):
+            phase = Phase.SUBMIT
+            async def run(self):
+                await self.ctx.board.set("submission", {"accepted": True, "reference": "fixture"})
+        self.assertIsNone(await self.run_with([Confirmed], task=task))
 
-    async def test_only_filter(self):
+    async def test_scored_run_ignores_local_filter(self):
         order = []
         await self.run_with(make_agents(order), env={"SWARM_ONLY": "Collect,Submit"})
-        self.assertEqual(order, ["collect", "submit"])
+        self.assertEqual(order, ["collect", "analyze sees 1", "submit"])
 
     async def test_plain_code_phases_run_even_out_of_time(self):
         order = []

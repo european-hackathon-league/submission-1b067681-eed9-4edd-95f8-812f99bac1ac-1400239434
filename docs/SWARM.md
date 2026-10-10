@@ -17,7 +17,7 @@ TenderScraper (b0) login + overview, then documents (main tab) || Q&A (2nd tab)
 SpecScraper   (b1) ──spec.page───> done.spec ───> RequirementAnalyzer ──> results["spec"], results["requirements"]
                                                         (+ Q&A amendments) ──> results["requirements_final"]
 ErpScraper    (b2) logs in while waiting for results["requirements"]; then small jobs on up to ERP_TABS tabs: one
-                   search per catalogue group -> the listed materials that fit -> record || prices || stock per material
+                   search per catalogue group -> the listed materials that fit -> record -> prices || stock per active material
                    ──erp.page──> done.erp ──> MaterialMatcher ──> results["erp"], results["materials"]
 MailScraper   (b3) logs in while the brief is read; one search for the reference, reads every message about the tender
                    ──> done.mail_core; then a search per brief topic still without a valid message (parallel tabs)
@@ -41,7 +41,7 @@ bounded by `ctx.time_left()`. Missing inputs degrade the bid (omitted positions,
 | `swarm/agent.py` | `Agent` base, `Phase`, `@register` |
 | `swarm/context.py` | `ctx`: `task`, `board`, `llm`, `pool`, `site(id)`, `brief`, `time_left()`, `seconds_left()`, `lock(name)`, `shared` |
 | `swarm/llm.py` | `ctx.llm.chat / ask / ask_json` (Qwen, concurrency-limited, usage counted), `parse_json` |
-| `swarm/browser_agent.py` | `browse(ctx, goal, browser=n, tab=..., flash=..., careful=...)`: **browser-use** on our CDP browser + Qwen, with our actions `read_page`, `record`, `fill_form`, `share_tip`; `Tab` |
+| `swarm/browser_agent.py` | `browse(ctx, goal, browser=n, tab=..., flash=..., careful=...)`: **browser-use** on our CDP browser + Qwen, with our actions `read_page`, `record`, `fill_form`, `share_tip`, `read_document`, `read_visual`; `Tab` |
 | `swarm/guard.py` | `PopupGuard`: runs next to every browsing agent and clears noise (model decides once per kind of popup, cached per site) |
 | `swarm/page_text.py` | the page extractor behind `read_page` (iframes, collapsed sections, tooltips, canvas labels, zero-width chars) |
 | `swarm/forms.py` | the form filler behind `fill_form` (cascading selects via an apply button) |
@@ -67,8 +67,8 @@ The model (Qwen via browser-use) decides where to go. Three actions of ours make
 - `share_tip(tip)`: a short how-to for the site (a URL pattern that opens results directly, how a record opens); later
   agents on that site get the tips in their hints, so one agent's discovery saves every other agent the search.
 
-A page another agent already saved is not opened again: `read_page(url=...)` returns the saved text (off for the TAN
-mail, which changes). The popup guard (`swarm/guard.py`) sweeps the agent's page before every step and every 2 s:
+`read_page` reads live content by default and preserves URL fragments. Explicit `refresh=false` permits cached
+immutable evidence. Failed extractions are retried rather than cached as empty results. The popup guard (`swarm/guard.py`) sweeps the agent's page before every step and every 2 s:
 each new kind of dialog / overlay / banner / short error page goes to the model once ("click" noise, "fill" an access
 gate, "leave" anything an agent works with), and the decision is cached per site for all agents, so a notice that comes
 back on every page costs one model call per run. The submitter's guard is careful: clicks on noise without inputs only.
@@ -167,3 +167,23 @@ Then a sandbox test run (`atira test-run .`) to check timing; debug with `atira 
 - Tune goals/hints per site from test-run logs (`atira` MCP: `run_logs`, `run_llm_calls`, `run_screenshot`).
 - Submitter: watch the first real runs closely (wizard order, TAN timing).
 - Cost: browser-use sends the goal every step; keep goals short.
+
+
+## Workflow safeguards and evaluation
+
+Requirements are published as specification pages arrive; ERP keeps accepting new requirements until final analysis.
+Mail stops 150 seconds before the submission reserve, and every completed mail/ERP extraction is retained immediately.
+At the collection cutoff the orchestrator reconciles completed extractions without another model call.
+
+Model attempts time out after 55 seconds (`SWARM_MODEL_TIMEOUT_S`); browsing and analyst calls share a concurrency
+limit of 16. A run has its own monotonic clock. Collection children and guard tasks are cancelled and awaited before
+signing. Local runs launch persistent CDP browsers so a resumed wizard keeps its tab and login.
+
+The submitter starts a background TAN lookup and polls it while retaining the portal wizard. A replacement request
+explicitly invalidates that lookup. A model `done` result is insufficient: `confirm_submission` must match a quoted
+receipt on the tender portal. Missing confirmation produces a failed run rather than a misleading success exit.
+
+Open shadow roots, visible editable controls, PDF/text/ZIP documents, and explicit visual transcription have helper
+support. Failed or unverified form fields prevent the helper's continue click. These mechanisms do not guarantee
+compatibility with every framework or website. [The review backlog](REVIEW.md) distinguishes fixes from remaining
+risks; `scripts/evaluate_navigation.py` runs an opt-in live-model discovery check against two synthetic layouts.

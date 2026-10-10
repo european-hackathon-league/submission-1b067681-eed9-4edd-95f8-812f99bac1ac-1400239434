@@ -29,7 +29,6 @@ class BriefReader(Agent):
     phase = Phase.COLLECT
 
     async def run(self) -> None:
-        roles = asyncio.create_task(resolve_roles(self.ctx))     # in parallel with the brief call
         facts = await self.ctx.llm.ask_json(
             "Extract key facts from task brief. Copy values exactly. Reply JSON only.",
             f"Shape:\n{SHAPE}\n\nBRIEF:\n{self.ctx.brief}")
@@ -41,4 +40,4 @@ class BriefReader(Agent):
             facts["scenario_date"] = ""
         await self.ctx.board.set("brief", facts)
         self.log.info("brief facts: %s", facts)
-        await roles
+        await resolve_roles(self.ctx)

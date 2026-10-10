@@ -7,19 +7,26 @@ which runs a short browse on the mail browser (3) to read the newest TAN mail. R
 then every position without data is omitted ("partial submission"), the bid is still signed.
 """
 import time
+import asyncio
 
 from pydantic import BaseModel, Field
 
 from swarm import Agent, Phase, register
 from swarm.blackboard import Evidence
-from swarm.browser_agent import ActionResult, browse
+from swarm.browser_agent import ActionResult, browse, read_current_page, BrowserSession
 from swarm.context import FINAL_MARGIN_S
 from swarm.extract import brief_section
 from swarm.sites import site_for
 
 
 class TanParams(BaseModel):
+    new_request: bool = Field(default=False, description="True only after explicitly requesting a replacement TAN in the portal")
     requested_at: str = Field(default="", description="when you requested the TAN (as shown), if known")
+
+
+class ReceiptParams(BaseModel):
+    quote: str = Field(description="Exact text on the current portal page confirming the bid was submitted, not saved as draft")
+    reference: str = Field(description="Tender reference for this receipt")
 
 
 def bid_table(bid: dict, tender: dict) -> str:
@@ -56,8 +63,12 @@ class BidSubmitter(Agent):
 
     async def run(self) -> None:
         ctx = self.ctx
+        if ctx.task.get("submission", {}).get("kind") == "api":
+            return
         bid = ctx.board.get("bid") or {"answer": {"decision": "bid", "positions": []}, "lines": []}
         facts = ctx.board.get("brief") or {}
+        if bid.get("validation_errors"):
+            self.log.warning("Bid validation issues require repair in the wizard: %s", bid["validation_errors"])
         answer = bid["answer"]
         tender_site = await site_for(ctx, "tender")
         mail_site = (ctx.board.get("sites") or {}).get("mail")
@@ -86,47 +97,99 @@ class BidSubmitter(Agent):
             "not ask for (e.g. own terms). Form wants signing TAN -> request it in portal, call get_signing_tan, enter "
             "returned TAN right away (TAN valid few minutes; new request invalidates old one). Review summary, confirm "
             "binding submission (accept browser dialog). done once portal confirms submission; report "
-            "confirmation/receipt text.")
+            "confirmation/receipt text. Call confirm_submission with an exact quote from the portal receipt before done. "
+            "If get_signing_tan reports pending, keep this wizard open and poll that tool; do not request another TAN. "
+            "A failed attempt may already have submitted: inspect current portal status before any new binding action.")
+
+        tan_task = None
 
         def tan_tool(tools):
+            @tools.action("Confirm acceptance using an exact receipt quote on the current portal page.", param_model=ReceiptParams)
+            async def confirm_submission(params: ReceiptParams, browser_session: BrowserSession):
+                from swarm.normalize import norm_ref
+                from urllib.parse import urlsplit
+                current_url = await browser_session.get_current_page_url()
+                if urlsplit(current_url).netloc != urlsplit(site["url"]).netloc:
+                    return ActionResult(error="Acceptance must be confirmed on the tender portal")
+                observed = await read_current_page(browser_session)
+                quote = " ".join(params.quote.split())
+                expected = answer.get("tender_reference") or facts.get("tender_reference")
+                if not expected or norm_ref(params.reference) != norm_ref(expected):
+                    return ActionResult(error="Receipt reference does not match this tender")
+                if len(quote) < 12 or quote not in " ".join(observed.split()):
+                    return ActionResult(error="Receipt quote is not on the current page; read the portal confirmation")
+                receipt = {"accepted": True, "reference": expected, "quote": quote,
+                           "url": await browser_session.get_current_page_url()}
+                await ctx.board.set("submission", receipt)
+                await ctx.board.post(Evidence("submission.receipt", tender_site, receipt, source=receipt["url"], author=self.name))
+                return ActionResult(extracted_content="Receipt recorded; finish now", is_done=True, success=True)
+
             @tools.action("Read newest signing TAN from our webmail (call right after requesting TAN).",
                           param_model=TanParams)
             async def get_signing_tan(params: TanParams):
+                nonlocal tan_task
                 if not mail_site:
                     return ActionResult(error="mail website unknown")
-                mail = ctx.site(mail_site)
-                mc = mail.get("credentials") or {}
-                found: list[dict] = []
+                async def retrieve():
+                    mail = ctx.site(mail_site)
+                    mc = mail.get("credentials") or {}
+                    found: list[dict] = []
 
-                async def keep(rec):
-                    found.append(rec)
-                    await ctx.board.post(Evidence(kind="mail.tan" if rec["kind"] != "page" else "mail.page",
-                                                  site=mail_site, data=rec["data"], source=rec["source"],
-                                                  author=self.name, note=rec["note"]))
-                job = (f"Site (webmail): {mail['url']}\nLogin: username {mc.get('username')!r}, password "
-                       f"{mc.get('password')!r}\n\nYOUR JOB: signing TAN for tender "
-                       f"{answer.get('tender_reference')} just requested (at {params.requested_at or 'just now'}; "
-                       f"session started {started}). Open inbox (new TAN mails appear without searching), open NEWEST "
-                       "signing-TAN message for this tender, read_page it, record kind 'mail.tan' with data "
-                       "{\"tan\": \"...\", \"received\": \"...\", \"request\": \"...\"} copied exactly, then done "
-                       "stating the TAN.")
-                out = await browse(ctx, job, browser=3, site_id=mail_site, on_record=keep, max_steps=10,
-                                   author=f"{self.name}.tan", stop_reserve=FINAL_MARGIN_S,
-                                   dedupe_reads=False)       # a new TAN request may update the same message page
-                tans = [r["data"].get("tan") for r in found if r["kind"] != "page" and r["data"].get("tan")]
-                text = f"TAN: {tans[-1]}" if tans else f"No TAN recorded. Mail agent said: {out['summary'][:300]}"
+                    async def keep(rec):
+                        found.append(rec)
+                        await ctx.board.post(Evidence(kind="mail.tan" if rec["kind"] == "mail.tan" else "mail.page",
+                                                      site=mail_site, data=rec["data"], source=rec["source"],
+                                                      author=self.name, note=rec["note"]))
+                    job = (f"Site (webmail): {mail['url']}\nLogin: username {mc.get('username')!r}, password "
+                           f"{mc.get('password')!r}\n\nYOUR JOB: signing TAN for tender "
+                           f"{answer.get('tender_reference')} just requested (at {params.requested_at or 'just now'}; "
+                           f"session started {started}). Open inbox (new TAN mails appear without searching), open NEWEST "
+                           "signing-TAN message for this tender, read_page it, record kind 'mail.tan' with data "
+                           "{\"tan\": \"...\", \"received\": \"...\", \"request\": \"...\"} copied exactly, then done "
+                           "stating the TAN.")
+                    out = await browse(ctx, job, browser=3, site_id=mail_site, on_record=keep, max_steps=12,
+                                       author=f"{self.name}.tan", stop_reserve=FINAL_MARGIN_S,
+                                       dedupe_reads=False)       # a new TAN request may update the same message page
+                    tans = [r["data"].get("tan") for r in found if r["kind"] != "page" and r["data"].get("tan")]
+                    text = f"TAN: {tans[-1]}" if tans else f"No TAN recorded. Mail agent said: {out['summary'][:300]}"
+                    return text
+
+                if params.new_request and tan_task is not None:
+                    tan_task.cancel()
+                    await asyncio.gather(tan_task, return_exceptions=True)
+                    tan_task = None
+                if tan_task is None:
+                    tan_task = asyncio.create_task(retrieve())
+                try:
+                    text = await asyncio.wait_for(asyncio.shield(tan_task), timeout=3)
+                except TimeoutError:
+                    return ActionResult(extracted_content="TAN lookup pending. Keep the portal open. Poll get_signing_tan; do not request a new TAN.")
+                except Exception as error:
+                    tan_task = None
+                    return ActionResult(error=f"TAN lookup failed ({type(error).__name__}); retry the lookup")
+                if text.startswith("No TAN"):
+                    tan_task = None
                 return ActionResult(extracted_content=text, long_term_memory=text)
 
-        note = ""
-        for attempt in range(3):           # an agent that stopped early (errors) gets another go while time allows
-            out = await browse(ctx, goal + note, browser=self.browser, site_id=tender_site, max_steps=60,
-                               author=self.name, stop_reserve=FINAL_MARGIN_S, extra_tools=tan_tool,
-                               max_actions_per_step=5, flash=False,   # binding, signed: keep full reasoning
-                               careful=True)          # the popup guard never touches the wizard's own forms
-            await ctx.board.set("submission", {"summary": out["summary"], "done": out["done"], "steps": out["steps"],
-                                               "attempt": attempt + 1})
-            self.log.info("submission attempt %d finished (done=%s): %s", attempt + 1, out["done"], out["summary"][:500])
-            if out["done"] or ctx.seconds_left() < FINAL_MARGIN_S + 90:
-                break
-            note = (f"\n\nNOTE: previous attempt stopped early ({out['summary'][:300]!r}). Browser may be mid-wizard: "
-                    "check current page first, continue from there.")
+        try:
+            note = ""
+            for attempt in range(5):           # an agent that stopped early (errors) gets another go while time allows
+                try:
+                    out = await browse(ctx, goal + note, browser=self.browser, site_id=tender_site, max_steps=60,
+                                       author=self.name, stop_reserve=FINAL_MARGIN_S, extra_tools=tan_tool,
+                                       max_actions_per_step=5, flash=False,   # binding, signed: keep full reasoning
+                                       careful=True)          # the popup guard never touches the wizard's own forms
+                except Exception as error:
+                    ctx.board.error(self.name, f"submission attempt {attempt + 1}: {type(error).__name__}")
+                    out = {"summary": f"browser interrupted: {type(error).__name__}", "done": False, "steps": 0}
+                await ctx.board.set("submission_attempt", {"summary": out["summary"], "done": out["done"], "steps": out["steps"],
+                                                   "attempt": attempt + 1})
+                self.log.info("submission attempt %d finished (done=%s): %s", attempt + 1, out["done"], out["summary"][:500])
+                if (ctx.board.get("submission") or {}).get("accepted") or ctx.seconds_left() < FINAL_MARGIN_S + 45:
+                    break
+                note = (f"\n\nNOTE: previous attempt stopped early ({out['summary'][:300]!r}). Browser may be mid-wizard: "
+                        "check current page first, continue from there.")
+        finally:
+            if tan_task is not None:
+                tan_task.cancel()
+                await asyncio.gather(tan_task, return_exceptions=True)

@@ -68,8 +68,7 @@ async def analyse(ctx) -> tuple[list, str, dict]:
     flagged.sort(key=lambda r: to_datetime(r.get("date")) or to_datetime("1970-01-01"))
     current = flagged[-1]["revision"] if flagged else ""
     rows = out.get("requirements") or []
-    if current:
-        rows = [r for r in rows if norm_ref(r.get("revision")) == norm_ref(current)] or rows
+    rows = [r for r in rows if current and norm_ref(r.get("revision")) == norm_ref(current)]
     requirements = {}
     for r in rows:
         ref = str(r.get("ref") or "").strip()
@@ -80,7 +79,8 @@ async def analyse(ctx) -> tuple[list, str, dict]:
         entry["stroke_kind"] = "usable" if "usable" in str(r.get("stroke_kind") or "").lower() else "nominal"
         entry["pieces_per_set"] = plain_number(r.get("pieces_per_set")) if r.get("pieces_per_set") else None
         entry["revision"] = r.get("revision") or current
-        requirements.setdefault(ref, entry)
+        merged = requirements.setdefault(ref, {})
+        merged.update({k: v for k, v in entry.items() if v not in (None, "")})
     return revisions, current, requirements
 
 
@@ -91,7 +91,8 @@ async def refresh(ctx, wait_tender: float = 0) -> dict:
         raise RuntimeError("no specification pages were saved")
     revisions, current, requirements = await analyse(ctx)
     await ctx.board.set("spec", {"revisions": revisions, "current": current})
-    await ctx.board.set("requirements", requirements)
+    if requirements:
+        await ctx.board.set("requirements", requirements)
     log.info("current revision %s, requirements %s", current, list(requirements))
     tender = ctx.board.get("tender")
     if tender is None and wait_tender > 0:
@@ -99,7 +100,8 @@ async def refresh(ctx, wait_tender: float = 0) -> dict:
     amended = apply_amendments({k: dict(v) for k, v in requirements.items()}, current,
                                (tender or {}).get("clarifications") or [])
     await ctx.board.set("requirements", amended)
-    await ctx.board.set("requirements_final", True)
+    if ctx.board.get("done.spec") is not None and tender is not None:
+        await ctx.board.set("requirements_final", True)
     return amended
 
 
@@ -108,24 +110,24 @@ class RequirementAnalyzer(Agent):
     phase = Phase.COLLECT
 
     async def run(self) -> None:
-        early = asyncio.create_task(self.early())
-        try:
-            await self.ctx.board.wait_for(key="done.spec", timeout=max(1.0, self.ctx.time_left()))
-        finally:
-            if not early.done():
-                early.cancel()
-        await refresh(self.ctx, wait_tender=max(1.0, self.ctx.time_left()))
-
-    async def early(self) -> None:
-        """As soon as a requirement table is saved, publish a first version so the ERP search can start while the
-        spec scraper is still finishing (the final version replaces it)."""
-        while True:
-            topics = " ".join(str(e.data.get("topic", "")).lower() for e in pages(self.ctx, "spec"))
-            if "requirement" in topics or "anforderung" in topics:
-                revisions, current, requirements = await analyse(self.ctx)
-                if requirements and self.ctx.board.get("requirements") is None:
-                    await self.ctx.board.set("spec", {"revisions": revisions, "current": current})
-                    await self.ctx.board.set("requirements", requirements)
-                    self.log.info("early requirements (%s): %s", current, list(requirements))
+        # Every newly saved spec page is a trigger. Topic spelling cannot delay ERP startup.
+        seen = -1
+        while self.ctx.time_left() > 0:
+            count = len(pages(self.ctx, "spec"))
+            if count and count != seen:
+                try:
+                    await refresh(self.ctx)
+                    seen = count
+                except Exception as error:
+                    self.log.warning("spec extraction will retry: %s", type(error).__name__)
+            if self.ctx.board.get("done.spec") is not None:
+                if count and seen != count:
+                    await refresh(self.ctx)
+                # Tender amendments can arrive after the initial requirement table.
+                try:
+                    await self.ctx.board.wait_for(key="tender", timeout=max(1, self.ctx.time_left()))
+                except TimeoutError:
+                    return
+                await refresh(self.ctx)
                 return
-            await asyncio.sleep(3)
+            await asyncio.sleep(2)

@@ -115,13 +115,16 @@ async def extract_erp(ctx) -> dict:
             kind = page_kind(e.data.get("topic"))
             shape, keys, instruction = SHAPES[kind]
             out = await extract(ctx, instruction, shape, [page_block(e)], list_key=keys, chunk_size=25_000)
-            return {"kind": kind, "topic": e.data.get("topic"), "url": e.data.get("url"),
+            result = {"kind": kind, "topic": e.data.get("topic"), "url": e.data.get("url"), "_incomplete": out.get("_incomplete", False),
                     **{k: out.get(k) or [] for k in ("materials", "conditions", "stock")}}
+            if not result["_incomplete"]:
+                cache[_key(e)] = result
+            return result
 
         replies = await asyncio.gather(*(one(e) for e in todo), return_exceptions=True)
         for e, r in zip(todo, replies):
-            cache[_key(e)] = r if isinstance(r, dict) else {"kind": "failed", "materials": [], "conditions": [],
-                                                            "stock": []}
+            if isinstance(r, dict) and not r.get("_incomplete"):
+                cache[_key(e)] = r
     return cache
 
 
@@ -131,7 +134,7 @@ def merge_materials(extracted: list[dict], groups=()) -> dict:
     page of a catalogue group (`groups`: the requirements' groups, named in the page topic) belongs to that group."""
     out: dict = {}
     status: dict[str, set] = {}
-    order = sorted(extracted, key=lambda x: 0 if x.get("kind") == "record" else 1 if x.get("kind") == "any" else 2)
+    order = sorted(reversed(extracted), key=lambda x: 0 if x.get("kind") == "record" else 1 if x.get("kind") == "any" else 2)
     for page in order:
         from_record = page.get("kind") in ("record", "any")
         for r in page.get("materials") or []:
@@ -170,7 +173,7 @@ def erp_view(cache: dict, groups=()) -> dict:
     stock: dict = {}
     for page in extracted:                 # one row per (material, location); a re-read replaces
         for s in page.get("stock") or []:
-            stock.setdefault(norm_ref(s.get("material")), {})[norm_ref(s.get("location")) or norm_ref(s.get("plant"))] = s
+            stock.setdefault(norm_ref(s.get("material")), {})[(norm_ref(s.get("plant")), norm_ref(s.get("location")), str(s.get("usable")))] = s
     out_stock = {}
     for no, rows in stock.items():
         free = sum((num(s.get("quantity")) or Decimal(0) for s in rows.values()
@@ -189,6 +192,8 @@ def required_stroke(req: dict, mail: dict, current_revision: str) -> Decimal | N
     if match is None:
         same_rev = [r for r in releases.values() if norm_ref(r.get("revision")) == norm_ref(current_revision)]
         match = same_rev[0] if len(same_rev) == 1 else None
+    if match and norm_ref(match.get("revision")) != norm_ref(current_revision):
+        return None
     reserve = num((match or {}).get("reserve_mm_per_end"))
     return stroke + 2 * reserve if reserve is not None else None
 
@@ -247,7 +252,7 @@ def match_positions(tender: dict, requirements: dict, materials: dict, mail: dic
                           "stroke": m.get("stroke"),
                           "active": True if active in (True, "true") else False if active in (False, "false") else None})
         # best first: active before unknown status, fully verified before unverified, then the shortest fitting stroke
-        usable = [c for c in cands if c["active"] is not False]
+        usable = [c for c in cands if c["active"] is True and not c["unverified"]]
         usable.sort(key=lambda c: (c["active"] is not True, len(c["unverified"]),
                                    norm_ref(c["material"]) not in priced, num(c["stroke"]) or Decimal(0)))
         required = {k: req.get(k) for k in ("bore", "pressure", "mounting", "certification", "kataloggruppe")}
@@ -262,7 +267,7 @@ def match_positions(tender: dict, requirements: dict, materials: dict, mail: dic
                         "unverified": best["unverified"] + ([] if best["active"] else ["status"])}
         else:
             out[pos] = {"material": None, "required": required, "candidates": cands, "unverified": [],
-                        "reason": "only blocked matches" if cands else "no exact match among the ERP records read"}
+                        "reason": "only blocked matches" if cands and all(c["active"] is False and not c["unverified"] for c in cands) else "no verified active exact match among the ERP records read"}
     return out
 
 
@@ -291,7 +296,14 @@ async def refresh(ctx) -> dict:
     """Extract new ERP pages, publish results["erp"] and match every position again; returns the match."""
     requirements = ctx.board.get("requirements") or {}
     groups = sorted({str(r.get("kataloggruppe")) for r in requirements.values() if r.get("kataloggruppe")})
-    erp = erp_view(await extract_erp(ctx), groups)
+    return await publish(ctx, await extract_erp(ctx))
+
+
+async def publish(ctx, cache=None) -> dict:
+    """Reconcile completed extractions without spending another model call."""
+    requirements = ctx.board.get("requirements") or {}
+    groups = sorted({str(r.get("kataloggruppe")) for r in requirements.values() if r.get("kataloggruppe")})
+    erp = erp_view(ctx.shared.get("erp.extracted", {}) if cache is None else cache, groups)
     await ctx.board.set("erp", erp)
     mail = ctx.board.get("mail") or {}
     spec = ctx.board.get("spec") or {}

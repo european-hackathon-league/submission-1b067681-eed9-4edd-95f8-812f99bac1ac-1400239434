@@ -23,6 +23,14 @@ def pages(ctx, role: str) -> list:
         if key not in seen:
             seen.add(key)
             out.append(e)
+    from swarm.blackboard import Evidence
+    for e in ctx.board.query(role + ".", prefix=True):
+        if not e.kind.endswith(".page") and e.data.get("_observed_text"):
+            key = (e.source, hash(e.data["_observed_text"]))
+            if key not in seen:
+                seen.add(key)
+                out.append(Evidence(role + ".page", e.site, {"topic": e.kind, "url": e.source,
+                                  "text": e.data["_observed_text"]}, source=e.source, author=e.author))
     return out
 
 
@@ -70,7 +78,7 @@ async def extract(ctx, instruction: str, shape: str, blocks: list[str], *, list_
         return {k: [] for k in keys}
     user_head = f"{instruction}\n\nJSON shape:\n{shape}\n" + (f"\nContext:\n{context}\n" if context else "")
     if not keys:
-        out = await ctx.llm.ask_json(SYSTEM, user_head + "\nPAGES:\n" + "\n\n".join(blocks)[:4 * CHUNK])
+        out = await ctx.llm.ask_json(SYSTEM, user_head + "\nPAGES:\n" + "\n\n".join(blocks))
         return out if isinstance(out, dict) else {}
     parts = chunks(blocks, chunk_size)
     replies = await asyncio.gather(*(ctx.llm.ask_json(SYSTEM, user_head + "\nPAGES:\n" + p) for p in parts),
@@ -78,7 +86,8 @@ async def extract(ctx, instruction: str, shape: str, blocks: list[str], *, list_
     merged: dict = {k: [] for k in keys}
     for r in replies:
         if isinstance(r, Exception):
-            log.warning("extract chunk failed: %s", r)
+            merged["_incomplete"] = True
+            log.warning("extract chunk failed: %s", type(r).__name__)
             continue
         if isinstance(r, list) and len(keys) == 1:
             merged[keys[0]] += r

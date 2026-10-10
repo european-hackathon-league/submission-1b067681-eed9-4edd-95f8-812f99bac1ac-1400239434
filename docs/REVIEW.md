@@ -1,0 +1,31 @@
+# Workflow and portability review
+
+This is the persistent problems list from the fresh review. A passing helper test is not proof that an unfamiliar site's complete workflow will succeed. Runtime navigation remains the model's responsibility; no production routes, answers, or scenario data belong in the package.
+
+| Problem | Current treatment and remaining work |
+| --- | --- |
+| 1. Finished browser history mistaken for accepted submission | Browser success checks the success flag. The submitter retries until it records an exact receipt quote on the tender portal. The orchestrator fails explicitly without a receipt. Receipt semantics still depend on the model interpreting the page correctly. |
+| 2. Wizard advances after failed fills | Hidden controls are excluded; unknown radio values fail; contenteditable and shadow controls are supported. Failed or unverified fields block the helper's continue click. Asynchronous framework resets and complex custom widgets need further coverage. |
+| 3. Deadline and cancellation leaks | Per-run monotonic clock, 55-second model attempts, shared concurrency limit, bounded browsing, coordinator child cleanup, and TAN cleanup. Keep measuring actual hosted-model latency and remaining signing time. |
+| 4. Unverified material selected as exact | Final selection requires active status and every required attribute verified. Broader candidates remain available for exploration. |
+| 5. Old specification rows or reserves reused | Only the identified current revision supplies requirements; technical releases must match that revision. Missing revision evidence must trigger collection rather than guessed fallback. |
+| 6. Commercial authority and validity gaps | Missing sender/domain/date authority rejects messages; FX uses its condition key; date-only validity includes the full day; replacement index messages do not resurrect old windows. Explicit local time zones and malformed commercial entries need more validation. |
+| 7. Missing costs silently treated as zero | Unresolved costs are explicitly marked as estimates; quantity and schema/arithmetic validation added. Best-effort partial pricing remains: estimates are not a claim of complete commercial correctness. Order-wide discount/pool/bonus behavior with incomplete lines needs further work. |
+| 8. Coordinator exhausts gaps before dispatch | Only scheduled/skipped gaps count as tried; failed jobs can retry; child jobs are cancelled and awaited at cutoff. Unscheduled jobs remain eligible. |
+| 9. Stale page cache and failed extraction cache | Reads are live by default; full URLs retain fragments; extraction failures can retry. Completed mail/ERP extractions survive sibling cancellation. |
+| 10. ERP starts late and discards candidates | Every newly saved spec page triggers analysis. ERP continuously queues new requirements, no first-three candidate cap, record before prices/stock, stock keyed by plant and location. Overall model/time limits still bound coverage. |
+| 11. Guard cache/action mismatch | Button order is part of the signature and same-origin error retry navigation is permitted. Guard classification is nonblocking. Dynamic gate values and concurrent page mutations remain risks. |
+| 12. Non-HTML evidence unavailable | Open shadow-root extraction, PDF/text/ZIP document tool, and explicit screenshot transcription fallback added. Cross-origin frames, image-only multipage documents, closed shadow roots, and large documents require broader evaluation. |
+| 13. Local/sandbox browser lifecycle differs | Local runs create persistent CDP browsers, matching sandbox tab reuse. Browser calls share usage accounting. Browser-use pinned because private integration hooks remain a maintenance risk. |
+| 14. Unfamiliar site orientation | Incomplete mappings retry; the model can request inspection of opaque sites. Multiple roles may share a site. A confidently wrong complete mapping still needs contradiction-driven recovery. |
+| 15. Recorded facts missed by downstream analysis | Direct records retain observed page text; fact-role overrides route evidence to the relevant analyst. Typed extraction/provenance validation is still incomplete. |
+| 16. SPA state and pagination | URL fragments preserved, live reads default, shadow pagination controls supported, changes polled and repeated pages stopped. Infinite-scroll/virtualized lists and slow updates need dedicated cases. |
+| 17. Form variants | Browser regressions cover hidden duplicates, invalid radios, editable elements, and open shadow roots. Add asynchronous rerender and accessible composite-widget cases. |
+| 18. Public UI habits treated as universal | Hints are explicitly tentative and general browser instructions require observing the UI. Several role-specific prompts still describe likely workflows; reduce these assumptions with broader fixtures. |
+| 19. Information moves between applications | Role overrides support facts discovered on a different site; role mapping permits shared workspaces. Fully capability-based scheduling across arbitrary site counts remains future work. |
+| 20. No held-out workflow benchmark | Browser helper tests and an opt-in live-model plain/shadow navigation evaluation added. Full workflow proof requires sandbox acceptance; an unseen multistep signing/ERP/mail benchmark is still needed. |
+
+Run deterministic checks with `uv run --no-sync python -m unittest discover -s tests -q`.
+With the local model proxy running, `uv run --no-sync python scripts/evaluate_navigation.py` evaluates randomized synthetic routes and identifiers in plain HTML and shadow DOM. It reports evidence capture separately from model completion, with steps, time, and calls. It does not use the public challenge's answers.
+
+Sandbox run notes and logs stay under ignored `.swarm/runs/`; they must not be copied into this document or shipped.
