@@ -798,3 +798,7 @@ ox to acknowledge the tender documents.
 2026-10-10 16:53:15,886 formpilot   actions [{"do": "click", "id": 8}] -> pressed #8
 2026-10-10 16:55:49,605 swarm TanReader timed out
 </pasted_content id="86f0">
+
+---
+
+вот тут всегда зависает
