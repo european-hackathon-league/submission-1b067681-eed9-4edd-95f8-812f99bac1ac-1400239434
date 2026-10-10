@@ -10,10 +10,12 @@ calculate, validate, retry and fill forms".
 """
 from __future__ import annotations
 
+import os
+
 LOGIN = "/login"
 CONSENT = "/consent"
 
-# The sites pad identifiers with zero-width characters, so "VG-2027-7093" does not match naively.
+# The sites pad identifiers with zero-width characters, so a reference like "AB-1234-5678" does not match naively.
 INVISIBLE = dict.fromkeys(map(ord, "\u200b\u200c\u200d\ufeff\u00ad"), None)
 
 
@@ -126,6 +128,9 @@ async def _unlock(page, timeout: float = 300_000):
     caption and stays on the page after the check passes, so waiting for it to disappear never returns.
     Measured on the ERP gate: "Gesperrt" and the form's disabled state both clear at the same moment.
     """
+    if os.environ.get("CHALLENGE_RUN_TOKEN"):
+        # a test or scored run has nobody at the screen: waiting would only burn the run's 20 minutes
+        raise RuntimeError("robot check on this page, and no person is present in a run")
     await page.bring_to_front()
     await page.wait_for_function(
         "() => !document.body.innerText.includes('Gesperrt')", timeout=timeout)

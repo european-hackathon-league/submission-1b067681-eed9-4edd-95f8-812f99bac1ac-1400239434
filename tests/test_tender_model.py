@@ -10,10 +10,10 @@ def _position(number, **fields):
 
 
 def _bid():
-    state = tm.tender("VG-2027-7093", "2027-01-25T09:00:00Z")
+    state = tm.tender("AB-0000-0001", "2030-01-15T09:00:00Z")
     state["decision"] = tm.decided("bid", tm.evidence("tender-portal"))
     state["discount_percent"] = tm.decided(5.0, tm.evidence(
-        "mail", record="Rabattfreigabe VG-2027-7093", dated="2027-01-24T17:00:00Z"))
+        "mail", record="Rabattfreigabe AB-0000-0001", dated="2030-01-14T17:00:00Z"))
     state["total_net"] = tm.decided(1234.56)
     state["positions"] = [_position("01.01", material_number="M-1", quantity=25,
                                     unit_price=10.0, lead_time_weeks=4)]
@@ -66,4 +66,4 @@ def test_missing_names_the_gaps_and_ignores_omitted_positions():
 def test_trace_points_at_the_record_that_won():
     lines = "\n".join(tm.trace(_bid()))
     assert "discount_percent = 5.0" in lines
-    assert "Rabattfreigabe VG-2027-7093" in lines and "2027-01-24T17:00:00Z" in lines
+    assert "Rabattfreigabe AB-0000-0001" in lines and "2030-01-14T17:00:00Z" in lines
