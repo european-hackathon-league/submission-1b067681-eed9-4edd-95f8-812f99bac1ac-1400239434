@@ -25,6 +25,7 @@ from swarm.llm import parse_json
 log = logging.getLogger("formpilot")
 
 NO_THINKING = {"chat_template_kwargs": {"enable_thinking": False}}   # Qwen3-style switch for its reasoning mode
+MODEL_CALL_TIMEOUT = 60   # a step answer takes 1-3 s; a request hanging for minutes is retried instead
 
 SNAPSHOT_JS = r"""
 (maxText) => {
@@ -221,7 +222,8 @@ async def pilot(page, llm, task: str, data: dict, *, deadline: float, allow_subm
             try:
                 # form steps need no long reasoning: without "thinking" Qwen answers ~2x faster with ~10x fewer
                 # output tokens, which also keeps us inside the portals' short session timeouts
-                reply = (await llm.chat(convo, temperature=0, extra_body=NO_THINKING)).content or ""
+                reply = (await asyncio.wait_for(llm.chat(convo, temperature=0, extra_body=NO_THINKING),
+                                                MODEL_CALL_TIMEOUT)).content or ""
             except Exception as error:  # noqa: BLE001 - an outage: retry a few times, then give up
                 failures += 1
                 log.warning("model call failed (%d): %s: %s", failures, type(error).__name__, str(error)[:300])
