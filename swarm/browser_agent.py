@@ -850,7 +850,10 @@ def build_tools(ctx, site_id: str, author: str, emit, dedupe_reads: bool = True,
             text = message.content or ""
             url = await browser_session.get_current_page_url()
             await save_text(text, params.topic, url, params.evidence_role)
-            return ActionResult(extracted_content=text[:PAGE_TEXT_LIMIT], long_term_memory="Visual transcription saved")
+            # the value itself goes into memory: with only "saved" there, the model (flash mode keeps memory, not old
+            # results) forgot the painted receipt number at the ERP gate and transcribed it again for 8 steps
+            return ActionResult(extracted_content=text[:PAGE_TEXT_LIMIT],
+                                long_term_memory=f"Visual transcription ({params.topic[:60]}): {' '.join(text.split())[:400]}")
         except Exception as error:
             return ActionResult(error=f"Visual reading unavailable: {type(error).__name__}")
 
