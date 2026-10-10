@@ -1,0 +1,6 @@
+Inspect the project. I need to setup the framework and base structure for agent-swarming so we can split the team into different agents. We need data-scraping from the website agent, data analyzers and verifyers, and potential for future agents according to the task. Goal right now is to make all preparations so each team member can start on the own agent using shared infrastructure
+
+---
+
+Inspect the project. I need to setup the framework and base structure for agent-swarming so we can split the team into different agents. We need
+  data-scraping from the website agent, data analyzers and verifyers, and potential for future agents according to the task. Goal right now is to make all  preparations so each team member can start on the own agent using shared infrastructure
