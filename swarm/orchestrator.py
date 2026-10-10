@@ -57,6 +57,15 @@ async def _run_agent(agent: Agent, deadline_bound: bool) -> None:
         log.exception("%s failed", agent.name)
 
 
+def _position_keys(tender: dict) -> dict:
+    try:
+        from agents.compute_bid import position_keys
+        return {str(p.get("position")): position_keys(tender.get("clarifications") or [], str(p.get("position")))["keys"]
+                for p in tender.get("positions") or []}
+    except Exception as error:  # noqa: BLE001 - a summary must never fail a run
+        return {"error": str(error)[:80]}
+
+
 def board_summary(board: Blackboard) -> dict:
     """A compact view of what the swarm knows (one log line), so a run's log shows it even if early lines are lost."""
     r = board.results
@@ -68,7 +77,12 @@ def board_summary(board: Blackboard) -> dict:
             "materials": {p: (m.get("material"), m.get("reason")) for p, m in (r.get("materials") or {}).items()},
             "erp": {"materials": len(erp.get("materials") or {}), "conditions": len(erp.get("conditions") or []),
                     "stock": sorted(erp.get("stock") or {})},
-            "discount": r.get("discount"), "open_gaps": [g.get("id") for g in r.get("gaps") or []],
+            "discount": r.get("discount"),
+            # which release mails were resolved, and which keys the Q&A gave each position: the two sides that must
+            # meet for packaging, commitments, setup pools, project bonus and condition groups
+            "mail_topics": {t: sorted(v) if isinstance(v, dict) else v for t, v in (r.get("mail") or {}).items()},
+            "position_keys": _position_keys(r.get("tender") or {}),
+            "open_gaps": [g.get("id") for g in r.get("gaps") or []],
             "tips": sum(len(v) for v in (r.get("tips") or {}).values()), "errors": len(board.errors)}
 
 

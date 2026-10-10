@@ -281,3 +281,34 @@ class Matching(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GuardThenClick(unittest.TestCase):
+    def test_a_gate_fill_never_follows_a_link_away(self):
+        from swarm.guard import safe_then_click
+        item = {"buttons": [{"label": "Original öffnen", "away": True}, {"label": "Weiter", "away": False}]}
+        self.assertEqual(safe_then_click({"then_click": "Original öffnen"}, item), "")
+        self.assertEqual(safe_then_click({"then_click": "Weiter"}, item), "Weiter")
+        self.assertEqual(safe_then_click({}, item), "")
+
+
+class ConditionFragments(unittest.TestCase):
+    def test_header_and_scales_pages_become_one_condition(self):
+        from agents.analyze_materials import merge_condition_fragments
+        from agents.compute_bid import valid_condition, scale_price
+        from swarm.normalize import to_datetime
+        header = {"material": "M-9", "valid_from": "01.01.2030", "valid_to": "31.12.2030", "price_unit": "100 ST",
+                  "currency": "EUR", "scales": []}
+        scales = {"material": "M-9", "number_format": "en-US",
+                  "scales": [{"min_qty": "1", "price": "212,063"}, {"min_qty": "25", "price": "186,615"}]}
+        merged = merge_condition_fragments([header, scales])
+        self.assertEqual(len(merged), 1)
+        cond = valid_condition(merged, "M-9", to_datetime("2030-03-10"))
+        self.assertEqual(str(scale_price(cond, 130)), "1866.15")
+
+    def test_ambiguous_fragments_are_left_alone(self):
+        from agents.analyze_materials import merge_condition_fragments
+        a = {"material": "M-9", "valid_from": "01.01.2030", "scales": []}
+        b = {"material": "M-9", "valid_from": "01.07.2030", "scales": []}
+        frag = {"material": "M-9", "scales": [{"min_qty": "1", "price": "1"}]}
+        self.assertEqual(len(merge_condition_fragments([a, b, frag])), 3)

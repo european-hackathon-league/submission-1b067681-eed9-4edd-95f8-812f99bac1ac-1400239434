@@ -137,7 +137,12 @@ def compute(inputs: dict) -> dict:
         cond = valid_condition(erp.get("conditions") or [], mat, scenario)
         price = scale_price(cond, int(q)) if cond else None
         if price is None:
-            issues.append(f"{pos}: no valid price condition/scale for {mat}")
+            # say why: a missing condition, one outside the scenario date, or unreadable scales/price unit
+            seen = [{k: c.get(k) for k in ("valid_from", "valid_to", "price_unit", "number_format", "currency")}
+                    | {"scales": len(c.get("scales") or [])}
+                    for c in erp.get("conditions") or [] if norm_ref(c.get("material")) == norm_ref(mat)]
+            issues.append(f"{pos}: no valid price condition/scale for {mat}; conditions seen: {seen or 'none'}"
+                          + (f"; chosen: {cond}" if cond else ""))
             continue
         currency = norm_ref((cond or {}).get("currency") or "EUR")
         if currency != "EUR":

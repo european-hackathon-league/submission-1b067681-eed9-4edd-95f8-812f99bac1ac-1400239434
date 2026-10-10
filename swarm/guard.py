@@ -203,6 +203,19 @@ def pick_button(decision: dict, item: dict) -> int | None:
     return index
 
 
+def safe_then_click(decision: dict, item: dict) -> str:
+    """The confirm button to press after filling a gate, unless it leads to another page. A sandbox run: after passing
+    the mail gate the guard pressed 'Original öffnen' (a link away, to a decoy page) on every sweep and the TAN lookup
+    kept landing there; navigating is the agent's decision."""
+    label = " ".join(str(decision.get("then_click") or "").split()).casefold()
+    if not label:
+        return ""
+    for button in item.get("buttons") or []:
+        if " ".join(str(button.get("label") or "").split()).casefold() == label and button.get("away"):
+            return ""
+    return str(decision.get("then_click"))
+
+
 def allowed(decision: dict, item: dict, careful: bool) -> bool:
     """What the guard may do with `item`: in careful mode only clicks on noise that has no input fields."""
     action = decision.get("action")
@@ -312,9 +325,10 @@ class PopupGuard:
                     else:
                         pairs = [(str(f.get("field", "")), str(f.get("value", ""))) for f in decision.get("fields") or []
                                  if isinstance(f, dict)]
-                        result = await asyncio.wait_for(self.fill(evaluate, pairs, str(decision.get("then_click") or ""), item["id"]),
+                        then_click = safe_then_click(decision, item)
+                        result = await asyncio.wait_for(self.fill(evaluate, pairs, then_click, item["id"]),
                                                         3 * EVAL_TIMEOUT_S)
-                        label = decision.get("then_click") or "fields"
+                        label = then_click or "fields"
                 except Exception as error:      # the item went away meanwhile
                     log.debug("guard action failed: %s", error)
                     continue

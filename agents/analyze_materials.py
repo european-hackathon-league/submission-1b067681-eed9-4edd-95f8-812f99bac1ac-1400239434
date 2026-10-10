@@ -169,10 +169,38 @@ def merge_materials(extracted: list[dict], groups=()) -> dict:
     return out
 
 
+FILLABLE = ("scales", "price_unit", "currency", "fx_key", "number_format")
+
+
+def merge_condition_fragments(conditions: list[dict]) -> list[dict]:
+    """One condition read on several pages (header with validity / price unit, a separate scales register) arrives as
+    fragments. A fragment without validity dates fills what the material's single dated condition lacks. Without this,
+    the dated header (no scales) won as 'latest valid' and the position went unpriced (run_7732ba545b50b3a5, 01.05).
+    Ambiguous cases (several dated conditions without scales) stay as they are."""
+    def dated(c):
+        return bool(c.get("valid_from") or c.get("valid_to"))
+
+    out = [dict(c) for c in conditions]
+    for material in {norm_ref(c.get("material")) for c in out}:
+        mine = [c for c in out if norm_ref(c.get("material")) == material]
+        fragments = [c for c in mine if not dated(c)]
+        targets = [c for c in mine if dated(c) and any(not c.get(k) for k in FILLABLE)]
+        if not fragments or len(targets) != 1:
+            continue
+        target = targets[0]
+        for frag in fragments:
+            for key in FILLABLE:
+                if not target.get(key) and frag.get(key):
+                    target[key] = frag[key]
+        if target.get("scales"):
+            out = [c for c in out if not any(c is f for f in fragments)]
+    return out
+
+
 def erp_view(cache: dict, groups=()) -> dict:
     extracted = list(cache.values())
     materials = merge_materials(extracted, groups)
-    conditions = [c for page in extracted for c in page.get("conditions") or []]
+    conditions = merge_condition_fragments([c for page in extracted for c in page.get("conditions") or []])
     stock: dict = {}
     for page in extracted:                 # one row per (material, location); a re-read replaces
         for s in page.get("stock") or []:

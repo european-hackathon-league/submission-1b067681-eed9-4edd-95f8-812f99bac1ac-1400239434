@@ -29,7 +29,7 @@ rewritten for it (`tests/test_submit_bid.py`, same intents).
 
 | Question | Today | Where |
 | --- | --- | --- |
-| Number format in the bid form above 999 EUR | `1.234,50` (tender_portal); main entered `1234,50`. Unverified which the form accepts. | `swarm/normalize.de_number` |
+| Number format in the bid form above 999 EUR | **Settled**: the form accepted `2.008,33` / `139.604,98` (run_7732ba545b50b3a5, quality 59.2). | `swarm/normalize.de_number` |
 | Condition without a price unit | runtime prices nothing (tender_portal: "does not get guessed"); bidmath assumes 1 | `agents/compute_bid.scale_price` |
 | "Ordinary setup fee" source | runtime: from the Q&A answer; tanreader-debug's calculator: from the ERP condition | `agents/compute_bid.position_keys` |
 | A browser that stops answering | **Fixed after the first sandbox run of this baseline** (run_2fc8121504807328: browser 0 never reconnected, 0 tender pages, 5 failed signing attempts): `browse()` checks the browser and moves the work to a new tab of a responsive one (`responsive_tab`). | `swarm/browser_agent.py` |

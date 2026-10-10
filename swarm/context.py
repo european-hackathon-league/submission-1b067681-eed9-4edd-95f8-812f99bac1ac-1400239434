@@ -10,7 +10,8 @@ from swarm.llm import LLM
 
 # Collecting and analysing stop this long before expiry; the rest belongs to SUBMIT (filling the bid form and signing
 # takes several minutes of browser steps). SUBMIT itself stops FINAL_MARGIN_S before expiry.
-SUBMIT_RESERVE_S = float(os.environ.get("SWARM_SUBMIT_RESERVE_S", 480))
+# signing 4 positions took 466 s in run_7732ba545b50b3a5 and ended 60 s before expiry; a 5th position adds ~90 s
+SUBMIT_RESERVE_S = float(os.environ.get("SWARM_SUBMIT_RESERVE_S", 600))
 FINAL_MARGIN_S = 40
 # A scored run lasts 20 minutes; test runs may last 2 hours. Every run plans with at most RUN_LIMIT_S from process
 # start, so test runs show the timing (and the follow-ups that fit) of a scored run. The run's real expiry still wins
