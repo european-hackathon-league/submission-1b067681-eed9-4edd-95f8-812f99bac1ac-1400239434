@@ -120,8 +120,11 @@ class MailScraper(SiteScraper):
                 return
             if topic not in self.covered(await publish(self.ctx)):
                 keys, materials = delivery_ids(self.ctx.board) if topic == DELIVERY else ((), ())
-                await self.browse_until_done(self.topic_job(topic, words, senders, keys, materials), attempts=1,
-                                             max_steps=12, tab=tab)
+                try:
+                    await self.browse_until_done(self.topic_job(topic, words, senders, keys, materials), attempts=1,
+                                                 max_steps=12, tab=tab)
+                except Exception as error:      # one failed search must not end the other topics
+                    self.ctx.board.error(self.name, f"mail search {topic} failed: {type(error).__name__}: {error}")
             if first and topic == topics[0]:
                 await first()
 

@@ -256,9 +256,16 @@ async def _browser_ws(cdp_url: str) -> str:
     parts = urlparse(cdp_url)
     path = parts.path.rstrip("/")
     path = path if path.endswith("/json/version") else path + "/json/version"
-    async with httpx.AsyncClient(timeout=30) as client:
-        reply = await client.get(urlunparse((parts.scheme, parts.netloc, path, "", "", "")))
-        return reply.json()["webSocketDebuggerUrl"]
+    url = urlunparse((parts.scheme, parts.netloc, path, "", "", ""))
+    for wait in (2, 5, 0):       # the endpoint drops a request now and then (e.g. while a hung tab is closed)
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                return (await client.get(url)).json()["webSocketDebuggerUrl"]
+        except httpx.TransportError:
+            if not wait:
+                raise
+            log.warning("CDP endpoint %s did not answer; retrying in %ss", url, wait)
+            await asyncio.sleep(wait)
 
 
 async def _with_cdp(browser: int, call):

@@ -68,3 +68,25 @@ class HungTabs(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CdpEndpointRetry(unittest.TestCase):
+    def test_a_dropped_version_request_is_retried(self):
+        import httpx
+        calls = []
+
+        class Client:
+            def __init__(self, **_): pass
+            async def __aenter__(self): return self
+            async def __aexit__(self, *_): return False
+            async def get(self, url):
+                calls.append(url)
+                if len(calls) == 1:
+                    raise httpx.RemoteProtocolError("Server disconnected without sending a response.")
+                return httpx.Response(200, json={"webSocketDebuggerUrl": "ws://x/devtools/browser/1"})
+
+        async def no_sleep(_): pass
+        with mock.patch.object(ba.httpx, "AsyncClient", Client), mock.patch.object(ba.asyncio, "sleep", no_sleep):
+            ws = asyncio.run(ba._browser_ws("http://127.0.0.1:9222"))
+        self.assertEqual(ws, "ws://x/devtools/browser/1")
+        self.assertEqual(len(calls), 2)
