@@ -15,6 +15,7 @@ Without results["bid"] it submits the smallest valid bid it can: the tender refe
 decision "bid", every position omitted, discount 0, total 0.
 Locally (no run token) it stops right before requesting the TAN unless SUBMIT_LOCAL=1.
 """
+import logging
 import os
 import re
 import time
@@ -29,6 +30,7 @@ BRIEF_FACTS = """From the task brief below, return JSON only:
 Copy values exactly as written in the brief. Use null for anything the brief does not state."""
 
 
+log = logging.getLogger("BidSubmitter")
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 
 
@@ -53,11 +55,14 @@ class TanWaiter:
         board.results.pop("tan", None)
         await board.set("tan_request", {"at": since})
         timeout = max(5.0, min(self.cap, self.ctx.seconds_left() - 45))
+        log.info("TAN requested: waiting up to %.0f s for results['tan'] from the mailbox reader", timeout)
         try:
             got = await board.wait_for(key="tan", timeout=timeout)
         except Exception:  # noqa: BLE001 - timed out: the model is told and decides what to do
+            log.warning("no TAN arrived within %.0f s", timeout)
             return None
         tan = got.get("tan") if isinstance(got, dict) else got
+        log.info("TAN received after %.0f s", time.time() - since)
         return plain(tan) if tan else None
 
 
