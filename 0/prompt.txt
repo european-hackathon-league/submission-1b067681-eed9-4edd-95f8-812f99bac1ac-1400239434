@@ -1,0 +1,13 @@
+так а что с TAN
+
+---
+
+зайди в бранч site-recon кстати и сделай чтобы все работало
+
+---
+
+<task-notification>
+<task-id>bum2iof1a</task-id>
+<summary>Monitor event: "submitter dry run #2: each turn and the end"</summary>
+<event>[Monitor expired after 25m with 4 events delivered. Re-arm it if you still need the watch.]</event>
+</task-notification>
