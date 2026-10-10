@@ -145,7 +145,8 @@ class BidSubmitter(Agent):
             "gross amounts are not the net total. Acknowledge only the tender documents; do not accept own "
             "terms/AGB, surveys or banners. On the final review page request the TAN once (action \"tan\"); it is "
             "fetched for you and appears in DATA.tan, so stay on the page; then enter it and submit, and "
-            "confirm the binding submission. Never leave this website."
+            "confirm the binding submission. Never leave this website. Never press a back/Zurück button: going "
+            "back discards every later step. If a page looks empty or half-loaded, take no action and look again."
         )
         allow = self.ctx.scored or os.environ.get("SUBMIT_LOCAL") == "1"
         page = await self.ctx.pool.new_page(self.browser or 0)
