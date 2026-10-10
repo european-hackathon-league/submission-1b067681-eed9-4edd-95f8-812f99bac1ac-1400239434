@@ -143,8 +143,9 @@ class BidSubmitter(Agent):
             "price after discount, the breakdown fields given, and lead time. Omit every other position with the "
             "portal's omit/skip control; never add positions. Enter discount and NET total as given; displayed "
             "gross amounts are not the net total. Acknowledge only the tender documents; do not accept own "
-            "terms/AGB, surveys or banners. On the final review page request the TAN once, enter it, and submit; "
-            "confirm the binding submission. Stay on this website."
+            "terms/AGB, surveys or banners. On the final review page request the TAN once (action \"tan\"); it is "
+            "fetched for you and appears in DATA.tan, so stay on the page; then enter it and submit, and "
+            "confirm the binding submission. Never leave this website."
         )
         allow = self.ctx.scored or os.environ.get("SUBMIT_LOCAL") == "1"
         page = await self.ctx.pool.new_page(self.browser or 0)
