@@ -34,3 +34,8 @@ __pycache__/
 .env.*
 *.tar.gz
 
+
+# локальные справочники (бриф рантайма, не коммитить)
+BRIEF.md
+answer_schema.json
+CHALLENGE.md

@@ -11,6 +11,7 @@ agent.json "models" to warm up: list ["qwen", "clef"] if your agent relies on Cl
 
 Any other provider works with your own key, through the run's metering proxy: see the docs above.
 """
+import base64
 import os
 
 import httpx  # comes with the OpenAI SDK
@@ -27,6 +28,21 @@ def qwen() -> AsyncOpenAI:
 async def ask_qwen(prompt: str) -> str:
     """One chat call: the reply's text."""
     reply = await qwen().chat.completions.create(model=QWEN_MODEL, messages=[{"role": "user", "content": prompt}])
+    return reply.choices[0].message.content or ""
+
+
+async def read_image(prompt: str, png: bytes) -> str:
+    """Ask Qwen about an image: the reply's text.
+
+    The sites paint some values into a <canvas> instead of the DOM - the ERP's Empfangsnummer, for one - so they
+    cannot be read as text. The number differs on the private dataset, so it has to be read at run time.
+    """
+    data_url = "data:image/png;base64," + base64.b64encode(png).decode()
+    reply = await qwen().chat.completions.create(model=QWEN_MODEL, messages=[{
+        "role": "user",
+        "content": [{"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": data_url}}],
+    }])
     return reply.choices[0].message.content or ""
 
 
