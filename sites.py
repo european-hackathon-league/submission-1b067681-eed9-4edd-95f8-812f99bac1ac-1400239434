@@ -98,7 +98,11 @@ async def canvas_images(page) -> list[bytes]:
     `readable` and to any DOM query. Hand these to `models.read_image`.
     """
     shots = []
-    for canvas in await page.query_selector_all("canvas"):
+    canvases = await page.query_selector_all("canvas")
+    if canvases:
+        # canvases are painted by a script after load: capturing straight away yields a blank image
+        await page.wait_for_timeout(600)
+    for canvas in canvases:
         try:
             shots.append(await canvas.screenshot())
         except Exception:  # noqa: BLE001 - a zero-sized or detached canvas is not worth failing over

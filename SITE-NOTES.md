@@ -60,3 +60,19 @@ Presents itself as "SAP GUI für HTML", client PRD/100. Every path first serves 
   the "Original öffnen" link to `/messages/<id>`.
 
 **Message contents not read yet.**
+
+## customer-portal, in detail
+
+- Document register at `/documents`, **one row per page** (`?page=N`); the Lastenheft is a row of type
+  "Technische Spezifikation" whose Zuordnung is the tender reference.
+- Almost every link on these pages points at `/documents/supplier-guide` — the banner, the toolbar, the sidebar.
+  The row's real link is the one labelled "Dokument anzeigen".
+- The specification sits behind a **Dokumentenüberlassung** form, with no robot gate:
+  `purpose` is a radio of `preview` / `reference` / `archive`, and the page states plainly that archive and
+  preview grant **no** read permission — only `reference` ("Verbindliche Unterlagen zur Kenntnis genommen")
+  reaches the governing revision. Picking either of the others is how you end up on a superseded one.
+- The form also wants a **Belegnummer painted into a `<canvas>`**, a "Überlassungsbedingungen gelesen"
+  acknowledgement, and submits with `operation=read`.
+- The receipt field's label is CSS-generated (`content: attr(data-label)`), so it is not in the text either;
+  read `data-label` if you need it.
+- Canvases are painted by a script after load: capture them a moment later or you get a blank image.
