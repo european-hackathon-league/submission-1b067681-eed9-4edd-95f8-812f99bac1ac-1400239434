@@ -18,6 +18,19 @@ On every push, CI (`.github/workflows/team.yml`) runs the tests on your branch *
 tests pass on the result (tried first in a throwaway worktree under `.integration/tmp/`). Otherwise your branch is
 left exactly as it was and you are told why. It never touches uncommitted work.
 
+## Adopting a new baseline (what each of you does once)
+
+Commit what you have, then on your branch: `uv run --no-sync python scripts/team.py sync`.
+
+- **It merges** (your branch only added to what `main` has): done, keep working on your branch.
+- **It refuses with conflicts** (your branch rewrote files that `main` now has in another form): your branch is
+  untouched. `docs/INTEGRATION.md` says which of your work is already in `main`, which was superseded, and which is
+  still open. Continue on a fresh branch from the baseline and bring over what is open, piece by piece:
+  `git switch -c <you>/next origin/main`. Your old branch stays as it is, for reference.
+
+Pulling `main` itself (`git switch main && git pull`) gives you the new code, docs and agent rules; it does not
+change your other branches: Git never updates a branch you have not merged into.
+
 ## How work gets into `main`
 
 The integrator runs `scripts/team.py integrate origin/<branch>`: trial merge into `integration/next`, tests (including
