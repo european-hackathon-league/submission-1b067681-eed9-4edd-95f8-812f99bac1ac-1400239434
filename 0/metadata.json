@@ -1,0 +1,334 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4KTFP6JK8T3K41KE314KZEH",
+  "session_id": "b4d25496-dfc5-4028-bb58-49733dc4d94d",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-10T21:11:18.820974Z",
+  "branch": "site-recon",
+  "checkpoints_count": 32,
+  "save_step_count": 32,
+  "files_touched": [
+    ".obsidian/app.json",
+    ".obsidian/appearance.json",
+    ".obsidian/core-plugins.json",
+    ".obsidian/workspace.json",
+    "agents/analyze_commercials.py",
+    "agents/analyze_discount.py",
+    "agents/analyze_materials.py",
+    "agents/analyze_quantities.py",
+    "agents/analyze_requirements.py",
+    "agents/compute_bid.py",
+    "agents/scrape_erp.py",
+    "agents/scrape_mail.py",
+    "agents/scrape_spec.py",
+    "agents/scrape_tender.py",
+    "agents/verify_evidence.py",
+    "sites.py",
+    "swarm/analysis.py",
+    "swarm/blackboard.py",
+    "swarm/browser_agent.py",
+    "swarm/context.py",
+    "swarm/facts.py",
+    "swarm/orchestrator.py",
+    "tests/test_analyzers.py",
+    "tests/test_facts.py",
+    "tests/test_swarm.py"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "turn_id": "a3978fa2d4f5",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 438,
+    "cache_creation_tokens": 577004,
+    "cache_read_tokens": 50906038,
+    "output_tokens": 193705,
+    "api_call_count": 219
+  },
+  "session_metrics": {
+    "turn_count": 32
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-10T21:11:18.761063Z",
+    "agent_lines": 1367,
+    "agent_removed": 55,
+    "human_added": 0,
+    "human_modified": 92,
+    "human_removed": 107,
+    "total_committed": 1394,
+    "total_lines_changed": 1621,
+    "agent_percentage": 87.72362739049969,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 266,
+      "user_lines_removed": 11,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".obsidian/app.json": 1,
+        ".obsidian/appearance.json": 1,
+        ".obsidian/core-plugins.json": 33,
+        ".obsidian/workspace.json": 207,
+        "sites.py": 24
+      },
+      "user_removed_per_file": {
+        "sites.py": 11
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 283,
+      "agent_lines_removed": 11
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 283,
+      "agent_lines_removed": 11
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 283,
+      "agent_lines_removed": 11
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 283,
+      "agent_lines_removed": 11
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 283,
+      "agent_lines_removed": 11
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 283,
+      "agent_lines_removed": 11
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 283,
+      "agent_lines_removed": 11
+    },
+    {
+      "checkpoint_number": 9,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 283,
+      "agent_lines_removed": 11
+    },
+    {
+      "checkpoint_number": 10,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1525,
+      "agent_lines_removed": 57
+    },
+    {
+      "checkpoint_number": 11,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1525,
+      "agent_lines_removed": 57
+    },
+    {
+      "checkpoint_number": 12,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1525,
+      "agent_lines_removed": 57
+    },
+    {
+      "checkpoint_number": 13,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1525,
+      "agent_lines_removed": 57
+    },
+    {
+      "checkpoint_number": 14,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1525,
+      "agent_lines_removed": 57
+    },
+    {
+      "checkpoint_number": 15,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1525,
+      "agent_lines_removed": 57
+    },
+    {
+      "checkpoint_number": 16,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1525,
+      "agent_lines_removed": 57
+    },
+    {
+      "checkpoint_number": 17,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1525,
+      "agent_lines_removed": 57
+    },
+    {
+      "checkpoint_number": 18,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1525,
+      "agent_lines_removed": 57
+    },
+    {
+      "checkpoint_number": 19,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1525,
+      "agent_lines_removed": 57
+    },
+    {
+      "checkpoint_number": 20,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1525,
+      "agent_lines_removed": 57
+    },
+    {
+      "checkpoint_number": 21,
+      "user_lines_added": 9,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1540,
+      "agent_lines_removed": 56,
+      "user_added_per_file": {
+        "tests/test_analyzers.py": 9
+      }
+    },
+    {
+      "checkpoint_number": 22,
+      "user_lines_added": 9,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1641,
+      "agent_lines_removed": 64,
+      "user_added_per_file": {
+        "tests/test_analyzers.py": 9
+      }
+    },
+    {
+      "checkpoint_number": 23,
+      "user_lines_added": 9,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1641,
+      "agent_lines_removed": 64,
+      "user_added_per_file": {
+        "tests/test_analyzers.py": 9
+      }
+    },
+    {
+      "checkpoint_number": 24,
+      "user_lines_added": 9,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1656,
+      "agent_lines_removed": 66,
+      "user_added_per_file": {
+        "tests/test_analyzers.py": 9
+      }
+    },
+    {
+      "checkpoint_number": 25,
+      "user_lines_added": 9,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1662,
+      "agent_lines_removed": 66,
+      "user_added_per_file": {
+        "tests/test_analyzers.py": 9
+      }
+    },
+    {
+      "checkpoint_number": 26,
+      "user_lines_added": 9,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1662,
+      "agent_lines_removed": 66,
+      "user_added_per_file": {
+        "tests/test_analyzers.py": 9
+      }
+    },
+    {
+      "checkpoint_number": 27,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 1671,
+      "agent_lines_removed": 66
+    },
+    {
+      "checkpoint_number": 28,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 2079,
+      "agent_lines_removed": 68
+    },
+    {
+      "checkpoint_number": 29,
+      "user_lines_added": 226,
+      "user_lines_removed": 0,
+      "agent_lines_added": 2079,
+      "agent_lines_removed": 68,
+      "user_added_per_file": {
+        "swarm/browser_agent.py": 11,
+        "swarm/report.py": 149,
+        "tests/test_report.py": 66
+      }
+    },
+    {
+      "checkpoint_number": 30,
+      "user_lines_added": 215,
+      "user_lines_removed": 0,
+      "agent_lines_added": 2090,
+      "agent_lines_removed": 68,
+      "user_added_per_file": {
+        "swarm/report.py": 149,
+        "tests/test_report.py": 66
+      }
+    },
+    {
+      "checkpoint_number": 31,
+      "user_lines_added": 215,
+      "user_lines_removed": 0,
+      "agent_lines_added": 2090,
+      "agent_lines_removed": 68,
+      "user_added_per_file": {
+        "swarm/report.py": 149,
+        "tests/test_report.py": 66
+      }
+    },
+    {
+      "checkpoint_number": 32,
+      "user_lines_added": 215,
+      "user_lines_removed": 0,
+      "agent_lines_added": 2090,
+      "agent_lines_removed": 68,
+      "user_added_per_file": {
+        "swarm/report.py": 149,
+        "tests/test_report.py": 66
+      }
+    }
+  ]
+}
