@@ -23,6 +23,7 @@ Set-Location (Split-Path $PSScriptRoot -Parent)
 $Milestones = 'browse done|swarm phase|site roles|brief facts|early requirements|current revision|positions,|' +
               'discount \{|materials:|verification:|submission attempt|answer \(entered|model calls:|nothing saved|' +
               'board after collect|gaps|follow-up|candidates|tip for|guard .*->|' +
+              'milestone|TIMELINE|progress |draft:|focused re-read|wizard prep|' +
               'tab job failed|timed out|failed|Traceback|FATAL|CRITICAL|No lifecycle events'
 
 if (-not $SkipTests) {

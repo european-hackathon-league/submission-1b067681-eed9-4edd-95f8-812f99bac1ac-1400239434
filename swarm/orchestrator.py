@@ -13,6 +13,7 @@ import pkgutil
 from pathlib import Path
 
 import agents as agents_pkg
+from swarm import timeline
 from swarm.agent import REGISTRY, Agent, Phase
 from swarm.blackboard import Blackboard
 from swarm.browser_pool import BrowserPool
@@ -21,6 +22,8 @@ from swarm.llm import LLM
 
 log = logging.getLogger("swarm")
 BOARD_DUMP = Path(".swarm/board.json")
+TIMELINE_DUMP = Path(".swarm/timeline.json")
+PROGRESS_EVERY_S = float(os.environ.get("SWARM_PROGRESS_S", "60"))
 
 
 def discover() -> list[type[Agent]]:
@@ -44,7 +47,11 @@ QUICK_BUDGET_S = 30
 
 
 async def _run_agent(agent: Agent, deadline_bound: bool) -> None:
+    timeline.AGENT.set(agent.name)          # every span this agent (and the tasks it starts) records carries its name
     try:
+        if deadline_bound and agent.phase not in (Phase.VERIFY, Phase.COMPUTE):
+            await _until_collect_ends(agent.ctx, agent.run())
+            return
         budget = agent.ctx.time_left() if deadline_bound else agent.ctx.seconds_left() - FINAL_MARGIN_S
         if agent.phase in (Phase.VERIFY, Phase.COMPUTE):
             budget = max(budget, QUICK_BUDGET_S)
@@ -55,6 +62,25 @@ async def _run_agent(agent: Agent, deadline_bound: bool) -> None:
     except Exception as error:
         agent.ctx.board.error(agent.name, f"{type(error).__name__}: {error}")
         log.exception("%s failed", agent.name)
+
+
+async def _until_collect_ends(ctx, coro) -> None:
+    """Run `coro` until it ends or the collect time is used up. The cutoff follows the live submission reserve (it
+    moves with the measured pace), so it is re-checked every second rather than fixed when the phase starts."""
+    task = asyncio.ensure_future(coro)
+    try:
+        while not task.done():
+            left = ctx.time_left()
+            if left <= 0:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+                raise asyncio.TimeoutError
+            await asyncio.wait({task}, timeout=min(1.0, max(0.05, left)))
+        task.result()
+    finally:
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
 
 
 def _position_keys(tender: dict) -> dict:
@@ -83,7 +109,36 @@ def board_summary(board: Blackboard) -> dict:
             "mail_topics": {t: sorted(v) if isinstance(v, dict) else v for t, v in (r.get("mail") or {}).items()},
             "position_keys": _position_keys(r.get("tender") or {}),
             "open_gaps": [g.get("id") for g in r.get("gaps") or []],
+            "unresolved": (r.get("bid_draft") or {}).get("unresolved"),
             "tips": sum(len(v) for v in (r.get("tips") or {}).values()), "errors": len(board.errors)}
+
+
+def progress_line(ctx) -> str:
+    """One line per minute: clock, coverage of the draft bid, and where the last minute went."""
+    tl = timeline.current()
+    since = max(0.0, tl.now() - PROGRESS_EVERY_S)
+    totals = tl.totals(since)
+    cov = (ctx.board.get("bid_draft") or {}).get("coverage") or {}
+    pages = "/".join(str(sum(1 for e in ctx.board.evidence if e.kind == f"{k}.page")) for k in ("tender", "spec", "erp", "mail"))
+
+    def t(cat):
+        x = totals.get(cat) or {"s": 0, "n": 0}
+        return f"{x['s']:.0f}s/{x['n']}"
+    return (f"progress {timeline.clock(tl.now())} left {ctx.seconds_left():.0f}s (collect {ctx.time_left():.0f}s, "
+            f"reserve {ctx.submit_reserve():.0f}s) pages t/s/e/m {pages} positions {cov.get('priced', 0)}/"
+            f"{cov.get('positions', 0)} priced, {cov.get('complete', 0)} complete, {cov.get('unresolved', 0)} open deps"
+            f" | last {PROGRESS_EVERY_S:.0f}s: steps {t('browse.step')} queue {t('model.queue')} calls "
+            f"{t('model.call')} extract {t('extract')} waits {t('wait.dep')} recovery {t('recovery')} | "
+            f"model calls {ctx.llm.calls}")
+
+
+async def _progress(ctx) -> None:
+    while True:
+        await asyncio.sleep(PROGRESS_EVERY_S)
+        try:
+            log.info(progress_line(ctx))
+        except Exception as error:  # noqa: BLE001 - reporting must never fail a run
+            log.debug("progress line failed: %s", error)
 
 
 async def run_swarm(task: dict, playwright, scored: bool, env=os.environ):
@@ -92,6 +147,7 @@ async def run_swarm(task: dict, playwright, scored: bool, env=os.environ):
     if preload and not scored:                       # never replay data in a scored run
         board = Blackboard.load(Path(preload))
     ctx = Context(task=task, board=board, llm=LLM(), pool=BrowserPool(playwright), scored=scored)
+    tl = timeline.reset(ctx.monotonic_start)
     classes = select(discover(), None if scored else env.get("SWARM_ONLY"))
     from swarm.browser_agent import _MAIN_TABS, _OWNERS, _OPENERS
     from swarm import guard
@@ -112,8 +168,20 @@ async def run_swarm(task: dict, playwright, scored: bool, env=os.environ):
                 log.warning("skipping phase %s: out of time", phase.name)
                 continue
             log.info("phase %s: %s (%.0fs left)", phase.name, [a.name for a in agents], ctx.seconds_left())
-            await asyncio.gather(*(_run_agent(a, bound) for a in agents))
+            if phase == Phase.SUBMIT:
+                timeline.mark("submit start", left=round(ctx.seconds_left()),
+                              positions=len(((board.get("bid") or {}).get("answer") or {}).get("positions") or []))
+            progress = asyncio.create_task(_progress(ctx))
+            background = [asyncio.create_task(_run_agent(a, bound)) for a in agents if a.background]
+            try:
+                await asyncio.gather(*(_run_agent(a, bound) for a in agents if not a.background))
+            finally:
+                for running in background + [progress]:
+                    running.cancel()
+                await asyncio.gather(progress, *background, return_exceptions=True)
             if phase == Phase.COLLECT:
+                timeline.mark("collect end", left=round(ctx.seconds_left()))
+                await _cancel_background(ctx)
                 # Guard classification tasks are collection work too. None may survive into signing.
                 pending = list(guard._TASKS)
                 for t in pending:
@@ -143,6 +211,21 @@ async def run_swarm(task: dict, playwright, scored: bool, env=os.environ):
         for t in pending:
             t.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
+        await _cancel_background(ctx)
         await ctx.pool.close()
         if ctx.llm._client is not None:
             await ctx.llm._client.close()
+        try:
+            tl.log_report()
+            if not scored:
+                tl.dump(TIMELINE_DUMP)
+        except Exception as error:  # noqa: BLE001 - reporting must never fail a run
+            log.debug("timeline report failed: %s", error)
+
+
+async def _cancel_background(ctx) -> None:
+    """Extraction tasks started by analysts in the background (they publish when done) end with collection."""
+    tasks = [t for t in ctx.shared.get("background", set()) if not t.done()]
+    for t in tasks:
+        t.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)

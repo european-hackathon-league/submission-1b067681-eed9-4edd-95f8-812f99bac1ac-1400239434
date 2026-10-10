@@ -14,7 +14,7 @@ import asyncio
 import logging
 
 from swarm import Agent, Phase, register
-from swarm.extract import extract, page_block, pages
+from swarm.extract import extract, page_block, pages, settle, start_once
 from swarm.normalize import norm_ref, to_datetime, to_decimal
 
 log = logging.getLogger("RequirementAnalyzer")
@@ -57,28 +57,33 @@ def apply_amendments(requirements: dict, current: str, clarifications: list[dict
     return requirements
 
 
-async def analyse(ctx) -> tuple[list, str, dict]:
-    """Extract pages independently and publish every completed requirement table immediately."""
+async def analyse(ctx, wait: bool = True) -> tuple[list, str, dict]:
+    """Extract pages independently (a task per page, swarm.extract.start_once) and publish every completed
+    requirement table immediately. `wait=False` only starts the extractions of new pages."""
     cache = ctx.shared.setdefault("spec.extracted", {})
-    async with ctx.lock("spec.extract"):
-        async def one(e):
-            key = (e.data.get("url"), hash(e.data.get("text", "")))
-            if key in cache:
+
+    async def one(e):
+        key = (e.data.get("url"), hash(e.data.get("text", "")))
+        try:
+            out = await extract(ctx, "Extract specification revision statuses and requirement rows. Mark current only with explicit valid/current status; never superseded.",
+                                SHAPE, [page_block(e)], list_key=("requirements", "revisions"))
+            if out.get("_incomplete"):
                 return
-            try:
-                out = await extract(ctx, "Extract specification revision statuses and requirement rows. Mark current only with explicit valid/current status; never superseded.",
-                                    SHAPE, [page_block(e)], list_key=("requirements", "revisions"))
-                if out.get("_incomplete"):
-                    return
-                cache[key] = out
-                revisions, current, requirements = merge_spec(ctx)
-                if current:
-                    await ctx.board.set("spec", {"revisions":revisions, "current":current})
-                    ctx.shared["spec.base_requirements"] = requirements
-                    await publish(ctx)
-            except Exception as error:
-                ctx.board.error("RequirementAnalyzer", f"spec extraction: {type(error).__name__}")
-        await asyncio.gather(*(one(e) for e in pages(ctx, "spec")))
+            cache[key] = out
+            revisions, current, requirements = merge_spec(ctx)
+            if current:
+                await ctx.board.set("spec", {"revisions":revisions, "current":current})
+                ctx.shared["spec.base_requirements"] = requirements
+                await publish(ctx)
+                if requirements:
+                    from swarm import timeline
+                    timeline.mark("first requirements", count=len(requirements))
+        except Exception as error:
+            ctx.board.error("RequirementAnalyzer", f"spec extraction: {type(error).__name__}")
+    tasks = [start_once(ctx, "spec", key, lambda e=e: one(e)) for e in pages(ctx, "spec")
+             if (key := (e.data.get("url"), hash(e.data.get("text", "")))) not in cache]
+    if wait:
+        await settle(tasks)
     return merge_spec(ctx)
 
 
@@ -151,7 +156,7 @@ class RequirementAnalyzer(Agent):
             count = len(pages(self.ctx, "spec"))
             if count and count != seen:
                 try:
-                    await refresh(self.ctx)
+                    await analyse(self.ctx, wait=False)   # each page publishes its requirements when extracted
                     seen = count
                 except Exception as error:
                     self.log.warning("spec extraction will retry: %s", type(error).__name__)

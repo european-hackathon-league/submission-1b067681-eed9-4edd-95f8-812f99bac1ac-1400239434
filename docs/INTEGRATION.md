@@ -38,3 +38,8 @@ rewritten for it (`tests/test_submit_bid.py`, same intents).
 | One frozen tab stalls every browser | browser-use routes all browser events of a process through one global lock (bubus); tanreader-debug isolated each browse in its own process, tender_portal ends a stalled connection after two timeouts and reattaches. Not reconciled: the isolation does not fit tender_portal's in-process tabs. | `swarm/browser_agent.py` |
 | Tokens/cost per agent in every run log (RUNSTATS) | only on tanreader-debug | `swarm/orchestrator.py` |
 | Unused modules (`bidmath`, `formpilot`, `decide`, `sites.py`, `tender_model.py`) | kept and tested; runtime does not call them | delete or adopt |
+| Recovery closing other agents' tabs | **Fixed**: `close_hung_tabs` skips tabs another browse is using (`_ACTIVE`); tested on real Chromium. | `swarm/browser_agent.py` |
+| Fixed 600 s submit reserve | Now estimated live from positions and measured step pace, [390, 600] s; **unverified** until sandbox runs confirm acceptance times. | `swarm/context.py` |
+| Condition fragments of different records merged | **Fixed**: `reconcile_conditions` (record ids, linked pages, conflicts kept apart). | `agents/analyze_materials.py` |
+| Tokens/time per agent in every run log (RUNSTATS) | Partly covered by `swarm/timeline.py` (time per agent and category, milestones, counters). | `swarm/timeline.py` |
+| team.py checks red without pytest | **Fixed**: falls back to `scripts/run_tests.py` (unittest + plain test functions). | `scripts/team.py` |

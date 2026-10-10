@@ -34,6 +34,27 @@ def pages(ctx, role: str) -> list:
     return out
 
 
+def start_once(ctx, registry: str, key, factory) -> asyncio.Task:
+    """The extraction task for `key`: the running one, or a new one (also when an earlier one ended without a
+    result, so failed extractions retry). Tasks run on their own: a caller that stops waiting (cancelled, or only
+    kicking new pages off) never cancels them, and a new page never waits for a slow sibling's batch. The
+    orchestrator cancels what is still running when collection ends."""
+    flight = ctx.shared.setdefault(f"{registry}.inflight", {})
+    task = flight.get(key)
+    if task is None or task.done():
+        task = asyncio.ensure_future(factory())
+        flight[key] = task
+        ctx.shared.setdefault("background", set()).add(task)
+    return task
+
+
+async def settle(tasks) -> None:
+    """Wait for `tasks` without cancelling them if this caller is cancelled."""
+    tasks = [t for t in tasks if not t.done()]
+    if tasks:
+        await asyncio.wait(tasks)
+
+
 def page_block(e) -> str:
     d = e.data
     return f"=== PAGE topic={d.get('topic')!r} url={d.get('url')} title={d.get('title')!r}\n{d.get('text', '')}"
@@ -76,6 +97,14 @@ async def extract(ctx, instruction: str, shape: str, blocks: list[str], *, list_
     keys = (list_key,) if isinstance(list_key, str) else tuple(list_key or ())
     if not blocks:
         return {k: [] for k in keys}
+    from swarm import timeline
+    topic = re.search(r"topic='([^']*)'", blocks[0][:300])
+    with timeline.span("extract", topic.group(1) if topic else "/".join(keys)):
+        return await _extract(ctx, instruction, shape, blocks, keys, context, chunk_size)
+
+
+async def _extract(ctx, instruction: str, shape: str, blocks: list[str], keys: tuple, context: str,
+                   chunk_size: int) -> dict:
     user_head = f"{instruction}\n\nJSON shape:\n{shape}\n" + (f"\nContext:\n{context}\n" if context else "")
     if not keys:
         out = await ctx.llm.ask_json(SYSTEM, user_head + "\nPAGES:\n" + "\n\n".join(blocks))

@@ -24,6 +24,7 @@ class Agent(ABC):
     name: str = ""               # defaults to the class name
     phase: Phase = Phase.COLLECT
     browser: int | None = None   # index of the browser this agent drives (0-3), None = no browser
+    background: bool = False     # runs alongside the phase and is cancelled when the phase's other agents are done
 
     def __init__(self, ctx):
         self.ctx = ctx

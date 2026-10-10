@@ -10,10 +10,10 @@ in the browser's main tab.
 """
 import asyncio
 
+from swarm import timeline
 from swarm.agent import Agent, Phase
 from swarm.blackboard import Evidence
 from swarm.browser_agent import Tab, browse
-from swarm.context import SUBMIT_RESERVE_S
 from swarm.extract import brief_intro
 from swarm.sites import site_for
 
@@ -46,20 +46,29 @@ class SiteScraper(Agent):
         kind = f"{self.role}.page" if rec["kind"] == "page" else rec["kind"]
         await self.ctx.board.post(Evidence(kind=kind, site=self.site_id, data=rec["data"], source=rec["source"],
                                            author=self.name, note=rec["note"]))
+        if kind.endswith(".page"):
+            timeline.mark(f"first {kind}")
+
+    def stop_extra(self, kwargs: dict) -> float:
+        return kwargs.get("stop_extra", ANALYSIS_RESERVE_S)
 
     async def browse(self, job: str, *, browser: int | None = None, max_steps: int | None = None, **kwargs) -> dict:
         prompt = "\n\n".join([self.login_text(), self.task_text(), f"YOUR JOB:\n{job}"])
         # stop browsing early enough for the analysts to turn the last pages into results before collecting ends
-        kwargs.setdefault("stop_reserve", SUBMIT_RESERVE_S + ANALYSIS_RESERVE_S)
+        kwargs.setdefault("stop_extra", ANALYSIS_RESERVE_S)
         out = await browse(self.ctx, prompt, browser=self.browser if browser is None else browser, site_id=self.site_id,
                            on_record=self.post, max_steps=max_steps or self.max_steps, hints=self.hints,
-                           author=self.name, **kwargs)
+                           author=kwargs.pop("author", self.name), **kwargs)
         self.log.info("browse done in %d steps, %d records: %s", out["steps"], len(out["records"]), out["summary"][:300])
         return out
 
+    def time_for_retry(self, kwargs: dict, need: float = 120) -> bool:
+        stop = kwargs["stop_reserve"] if kwargs.get("stop_reserve") is not None else self.ctx.stop_at(self.stop_extra(kwargs))
+        return self.ctx.seconds_left() - stop >= need
+
     async def browse_until_done(self, job: str, attempts: int = 3, **kwargs) -> dict:
-        """browse(); if the agent stopped without finishing (errors, step limit), start again with a note on what
-        is already saved, while time allows."""
+        """browse(); if the agent stopped without finishing (errors, step limit, a crashed browser agent), start again
+        with a note on what is already saved, while time allows. Saved pages are never collected twice."""
         out = {"summary": "", "done": False}
         records = []
         for attempt in range(attempts):
@@ -68,7 +77,13 @@ class SiteScraper(Agent):
                 saved = sorted({e.data.get("topic") for e in self.ctx.board.query(f"{self.role}.page")} - {None})
                 note = (f"\n\nNOTE: previous attempt stopped early ({out['summary'][:300]!r}). Already saved: "
                         f"{saved or 'nothing'}. Do only what is missing.")
-            out = await self.browse(job + note, **kwargs)
+                timeline.count("browse.retries")
+            try:
+                out = await self.browse(job + note, **kwargs)
+            except Exception as error:  # noqa: BLE001 - a failed connection is one failed attempt, not the end
+                self.ctx.board.error(self.name, f"browse attempt {attempt + 1}: {type(error).__name__}: {error}")
+                self.log.warning("browse attempt %d failed: %s", attempt + 1, error)
+                out = {"summary": f"failed: {type(error).__name__}", "done": False, "records": [], "steps": 0}
             records.extend(out.get("records") or [])
             rejected = self.ctx.shared.get("site_invalidations", {}).get(self.role, set())
             if self.site_id in rejected:
@@ -76,7 +91,7 @@ class SiteScraper(Agent):
                 # A reused tab may still show the old application; runtime model navigates the newly assigned URL.
                 job += "\nThe prior site assignment was contradicted. Navigate to the newly assigned site URL in Login."
                 out["done"] = False
-            if out["done"] or self.ctx.seconds_left() - kwargs.get("stop_reserve", SUBMIT_RESERVE_S + ANALYSIS_RESERVE_S) < 120:
+            if out["done"] or not self.time_for_retry(kwargs):
                 break
         return {**out, "records": records}
 
@@ -114,12 +129,15 @@ class SiteScraper(Agent):
             self.site_id = self.site_id or await site_for(self.ctx, self.role)
             out = await self.browse_until_done(self.goal())   # the brief's intro already names the tender: start at once
             await self.ctx.board.set(f"{self.name}.summary", out["summary"])
-            for keywords, job in self.required():
-                if self.ctx.time_left() > 90 and not any(k in self.saved_topics() for k in keywords):
-                    self.log.warning("nothing saved for %s: focused browse", keywords)
-                    await self.browse(job, max_steps=15)
+            await self.required_pass()
         finally:
             await self.ctx.board.set(f"done.{self.role}", True)
+
+    async def required_pass(self) -> None:
+        for keywords, job in self.required():
+            if self.ctx.time_left() > 90 and not any(k in self.saved_topics() for k in keywords):
+                self.log.warning("nothing saved for %s: focused browse", keywords)
+                await self.browse_until_done(job, attempts=1, max_steps=15)
 
 
 def scraper_class(role: str) -> type[SiteScraper] | None:

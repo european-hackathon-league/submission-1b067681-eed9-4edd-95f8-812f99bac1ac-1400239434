@@ -14,16 +14,23 @@ passes the ERP's gates. Then the work runs as small jobs on up to ERP_TABS tabs 
 
 Small jobs finish inside their step budget (one big job per group used to run out of steps before prices and stock),
 and no step is spent on materials the list already rules out. results["done.erp"] is set when the queue is empty.
+
+Scheduling: the next job is chosen when a tab gets free, by what it adds to a submit-ready answer (`priority`): first
+focused re-reads of something the bid calculation still misses, then prices and stock of materials that already match
+a position (they finish that position), then searches and the best candidate record per requirement, then further
+candidates; records of candidates for positions that already have a verified active match come last. A tab never
+waits for its page's extraction: that runs in the background and queues the follow-up jobs when it is done. After a
+material's prices / stock / record were read, the calculator's open dependencies for it (a condition without its price
+unit, scales, stock, lead times, carton size, ...) queue one focused re-read naming exactly what is missing.
 """
 import os
 import asyncio
 import itertools
 
 from agents.analyze_materials import extract_erp, merge_materials, search_candidates
-from swarm import Phase, register  # noqa: F401
+from swarm import Phase, register, timeline  # noqa: F401
 from swarm.browser_agent import Tab
 from swarm.blackboard import Evidence
-from swarm.context import SUBMIT_RESERVE_S
 from swarm.normalize import norm_ref
 from swarm.scraper import SiteScraper
 from swarm.sites import site_for
@@ -43,7 +50,8 @@ HINTS = ("Adapt to the observed software; these are possible patterns, not requi
          "tabs/registers, read all with ONE read_page(urls=[...]); transactions often take the material number "
          "directly in their entry field.")
 
-SEARCH, RECORD, PRICES, STOCK = 0, 1, 2, 2       # job priorities: searches first, then records, then prices/stock
+FOLLOWUP, FINISH, SEARCH, BEST_RECORD, RECORD, SPECULATIVE, COVERED = 0, 1, 2, 2, 3, 4, 6
+MAX_FOCUSED = 1          # focused re-reads per (job kind, material) after the first read
 
 
 def work_items(requirements: dict) -> list[dict]:
@@ -75,22 +83,25 @@ def search_goal(item: dict) -> str:
             "3. done, listing the materials of the list with their attributes. Do NOT open records (other agents do).")
 
 
-def material_goal(job: str, material: str, item: dict) -> str:
+def material_goal(job: str, material: str, item: dict, missing: str = "") -> str:
     group = f" (catalogue group {item['group']})" if item.get("group") else ""
     find = (f"Open material {material}{group}: type the number into the transaction's material field, or search "
             f"{item.get('group') or material} in its search help and click the row of {material}.")
+    focus = (f"\nA previous read of it did NOT show: {missing}. Find exactly that (other tab/register/record, "
+             "header vs. detail view, tooltip) and read_page the page that shows it.") if missing else ""
     if job == "record":
         return (f"{find}\nread_page EVERY tab/register of its record (basic data, technical data, planning/status with "
                 f"lead times and status; status legend or tooltip too) with topic 'erp material {material}', in one "
-                "read_page(urls=[...]) when the tabs are links. done with status and lead times.")
+                f"read_page(urls=[...]) when the tabs are links. done with status and lead times.{focus}")
     if job == "prices":
         return (f"Price conditions of material {material}{group}: open the price condition display transaction for "
                 f"it, open its quantity-scale register so every scale row shows, read_page with topic 'erp prices "
-                f"{material}'; several condition records (validity periods) -> read each one (next_page_link = exact "
-                "text of link to next record). done with validity periods and scale prices.")
+                f"{material}' (the header with validity, price unit and condition record number must be in the read "
+                "too); several condition records (validity periods) -> read each one (next_page_link = exact "
+                f"text of link to next record). done with validity periods, price unit and scale prices.{focus}")
     return (f"Stock of material {material}{group}: open the stock overview transaction for it, open storage-location "
             f"level so quantity per location and stock type shows, read_page with topic 'erp stock {material}'. done "
-            "with freely usable quantity per location.")
+            f"with freely usable quantity per location.{focus}")
 
 
 async def _items(ctx) -> list[dict]:
@@ -113,25 +124,68 @@ class ErpScraper(SiteScraper):
 
     def __init__(self, ctx):
         super().__init__(ctx)
-        self.queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
-        self.pending = 0
+        self.jobs: list[tuple[int, tuple]] = []      # (insertion order, job); the next job is chosen when taken
+        self.pending = 0                               # queued + running jobs + background extractions
         self.producer_done = False
         self.seen: set = set()
+        self.focused: dict[tuple, int] = {}
+        self.rank: dict[str, int] = {}                 # material -> its place among its search's candidates
         self._order = itertools.count()
+        self.background: set[asyncio.Task] = set()
 
-    def add(self, priority: int, job: tuple) -> None:
+    # ---- queue ----------------------------------------------------------------------------------------------------
+    def add(self, job: tuple, force: bool = False) -> bool:
         key = job[:2] if job[0] != "search" else ("search", job[1]["group"], repr(job[1]["requirements"]))
-        if key in self.seen:
-            return
+        if key in self.seen and not force:
+            return False
         self.seen.add(key)
         self.pending += 1
-        self.queue.put_nowait((priority, next(self._order), job))
+        self.jobs.append((next(self._order), job))
+        return True
+
+    def matched(self) -> dict[str, list[str]]:
+        """material -> positions it currently matches (verified active exact match)."""
+        out: dict[str, list[str]] = {}
+        for pos, m in (self.ctx.board.get("materials") or {}).items():
+            if m.get("material") and not m.get("unverified"):
+                out.setdefault(norm_ref(m["material"]), []).append(pos)
+        return out
+
+    def positions_of(self, item: dict) -> list[str]:
+        refs = {norm_ref(r.get("ref")) for r in item.get("requirements") or []}
+        return [str(p.get("position")) for p in (self.ctx.board.get("tender") or {}).get("positions") or []
+                if norm_ref(p.get("requirement_ref")) in refs]
+
+    def priority(self, job: tuple) -> int:
+        """What the job adds to a submit-ready answer (lower first)."""
+        kind = job[0]
+        if kind == "search":
+            return SEARCH
+        material, item = job[1], job[2]
+        matched = self.matched()
+        if len(job) > 3 and job[3]:                    # focused re-read of something the calculation misses
+            return FOLLOWUP
+        if kind in ("prices", "stock"):
+            return FINISH if norm_ref(material) in matched else SPECULATIVE
+        positions = self.positions_of(item)
+        covered = {p for ps in matched.values() for p in ps}
+        if positions and all(p in covered for p in positions):
+            return COVERED
+        return BEST_RECORD if self.rank.get(norm_ref(material), 0) == 0 else RECORD
+
+    def take(self) -> tuple | None:
+        if not self.jobs:
+            return None
+        best = min(self.jobs, key=lambda j: (self.priority(j[1]), j[0]))
+        self.jobs.remove(best)
+        return best[1]
 
     def blocked(self, material: str) -> bool:
         """True if the material's record page (read meanwhile) says it is blocked: its prices and stock are not needed."""
         info = merge_materials(list(self.ctx.shared.get("erp.extracted", {}).values())).get(norm_ref(material)) or {}
         return info.get("is_active") is False
 
+    # ---- jobs -----------------------------------------------------------------------------------------------------
     async def extract_job(self, out: dict) -> dict:
         evidence = []
         for record in out.get("records") or []:
@@ -143,43 +197,91 @@ class ErpScraper(SiteScraper):
                      "topic": data.get("topic") or record.get("kind", "")}))
         return await extract_erp(self.ctx, evidence=evidence)
 
+    def spawn(self, coro) -> None:
+        """Background work that may queue jobs: counted as pending so no worker quits while it runs."""
+        self.pending += 1
+        task = asyncio.ensure_future(coro)
+        self.background.add(task)
+        self.ctx.shared.setdefault("background", set()).add(task)
+
+        def finished(t):
+            self.pending -= 1
+            self.background.discard(t)
+            if not t.cancelled() and t.exception() is not None:
+                self.ctx.board.error(self.name, f"extraction: {type(t.exception()).__name__}: {t.exception()}")
+        task.add_done_callback(finished)
+
+    async def after_search(self, item: dict, out: dict) -> None:
+        found = search_candidates(await self.extract_job(out), item)
+        self.log.info("search %s: candidates %s", item["group"], found)
+        for i, material in enumerate(found):
+            self.rank.setdefault(norm_ref(material), i)
+            self.add(("record", material, item))
+
+    async def after_material(self, kind: str, material: str, item: dict, out: dict) -> None:
+        await self.extract_job(out)
+        from agents import analyze_materials
+        await analyze_materials.publish(self.ctx)            # the match (and so the priorities) follows at once
+        if kind == "record" and not self.blocked(material):
+            self.add(("prices", material, item))
+            self.add(("stock", material, item))
+        self.focus(kind, material, item)
+
+    def missing_for(self, kind: str, material: str) -> str:
+        """What the bid calculation still misses from this material's `kind` pages ('' if nothing / not matched)."""
+        from agents.compute_bid import build_bid
+        try:
+            bid = build_bid(self.ctx)
+        except Exception as error:  # noqa: BLE001
+            self.log.debug("draft for focus failed: %s", error)
+            return ""
+        dep = (bid.get("dependencies") or {}).get(f"erp {kind} {norm_ref(material)}")
+        return dep["need"] if dep else ""
+
+    def focus(self, kind: str, material: str, item: dict) -> None:
+        """One focused re-read when the calculation still misses something this kind of page should show."""
+        if norm_ref(material) not in self.matched() or self.blocked(material):
+            return
+        missing = self.missing_for(kind, material)
+        key = (kind, norm_ref(material))
+        if missing and self.focused.get(key, 0) < MAX_FOCUSED:
+            self.focused[key] = self.focused.get(key, 0) + 1
+            self.log.info("%s %s still misses: %s -> focused re-read", kind, material, missing[:160])
+            timeline.count("erp.focused")
+            self.add((kind, material, item, missing), force=True)
+
     async def do(self, job: tuple, tab: Tab | None) -> None:
-        stop = SUBMIT_RESERVE_S + ANALYSIS_TIME_S
+        extra = ANALYSIS_TIME_S
         if job[0] == "search":
             item = job[1]
-            out = await self.browse_until_done(search_goal(item), attempts=2, tab=tab, max_steps=14, stop_reserve=stop)
-            found = search_candidates(await self.extract_job(out), item)
-            self.log.info("search %s: candidates %s", item["group"], found)
-            for material in found:
-                self.add(RECORD, ("record", material, item))
+            out = await self.browse_until_done(search_goal(item), attempts=2, tab=tab, max_steps=14, stop_extra=extra)
+            self.spawn(self.after_search(item, out))
             return
-        kind, material, item = job
+        kind, material, item = job[:3]
+        missing = job[3] if len(job) > 3 else ""
         if kind != "record" and self.blocked(material):
             self.log.info("%s %s skipped: material blocked", kind, material)
             return
-        out = await self.browse_until_done(material_goal(kind, material, item), attempts=2, tab=tab, max_steps=16,
-                                     stop_reserve=stop)
-        await self.extract_job(out)
-        if kind == "record" and not self.blocked(material):
-            self.add(PRICES, ("prices", material, item))
-            self.add(STOCK, ("stock", material, item))
+        out = await self.browse_until_done(material_goal(kind, material, item, missing), attempts=2, tab=tab,
+                                           max_steps=16, stop_extra=extra)
+        self.spawn(self.after_material(kind, material, item, out))
 
     async def worker(self, tab: Tab | None) -> None:
-        """Takes jobs until the queue is empty and no running job can add more (or time is up)."""
+        """Takes jobs until none is queued and no running job or extraction can add more (or time is up)."""
         try:
             while self.ctx.time_left() > ANALYSIS_TIME_S:
-                try:
-                    _, _, job = self.queue.get_nowait()
-                except asyncio.QueueEmpty:
+                job = self.take()
+                if job is None:
                     if self.pending <= 0 and self.producer_done:
                         return
                     await asyncio.sleep(1.0)
                     continue
+                label = f"{job[0]} {job[1] if job[0] != 'search' else job[1]['group']}"
                 try:
-                    await self.do(job, tab)
+                    with timeline.span("erp.job", label):
+                        await self.do(job, tab)
                 except Exception as error:
-                    self.ctx.board.error(self.name, f"{job[0]} {job[1] if job[0] != 'search' else job[1]['group']}: "
-                                                    f"{error}")
+                    self.ctx.board.error(self.name, f"{label}: {error}")
                 finally:
                     self.pending -= 1
         finally:
@@ -190,14 +292,15 @@ class ErpScraper(SiteScraper):
         try:
             self.site_id = self.site_id or await site_for(self.ctx, self.role)
             if self.ctx.board.get("requirements") is None:      # use the wait: log in and pass the ERP's gates now
-                await self.browse("Log in, accept cookies, pass any system notice or access gate, open material search "
-                                  "help of material display transaction. Do NOT search yet. done once search form open.",
-                                  max_steps=12)
+                await self.browse_until_done("Log in, accept cookies, pass any system notice or access gate, open "
+                                             "material search help of material display transaction. Do NOT search "
+                                             "yet. done once search form open.", attempts=1, max_steps=12)
+
             async def produce():
                 try:
                     while self.ctx.time_left() > ANALYSIS_TIME_S:
                         for item in await _items(self.ctx):
-                            self.add(SEARCH, ("search", item))
+                            self.add(("search", item))
                         if self.ctx.board.get("requirements_final"):
                             return
                         await asyncio.sleep(2)
@@ -208,5 +311,7 @@ class ErpScraper(SiteScraper):
                 group.create_task(self.worker(None))
                 for _ in range(ERP_TABS - 1):
                     group.create_task(self.worker(Tab(self.browser)))
+            if self.background:                       # the last extractions (time is up for new jobs)
+                await asyncio.wait(set(self.background), timeout=max(1.0, self.ctx.time_left()))
         finally:
             await self.ctx.board.set("done.erp", True)

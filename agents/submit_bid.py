@@ -5,20 +5,54 @@ The model drives the wizard (browser 0) from the brief's submission instructions
 `fill_form` sets many fields per step. When the wizard asks for the signing TAN the model calls `get_signing_tan`,
 which runs a short browse on the mail browser (3) to read the newest TAN mail. Runs even if earlier phases failed:
 then every position without data is omitted ("partial submission"), the bid is still signed.
+
+Time savers (the submission reserve shrinks with them, see swarm.context.submit_reserve):
+- WizardPrep: near the end of collection the tender portal's main tab logs in and opens the bid wizard (entering
+  nothing), so the submitter starts at the wizard's first step.
+- At submit start the mail browser's main tab logs in and opens the inbox, so the TAN lookup only opens the newest mail.
+- check_entries compares the summary page with the values to enter in code (one step instead of re-reading pages).
 """
+import os
 import time
 from decimal import Decimal
-from swarm.normalize import de_number
+from swarm.normalize import de_number, norm_ref
 import asyncio
 
 from pydantic import BaseModel, Field
 
-from swarm import Agent, Phase, register
+from swarm import Agent, Phase, register, timeline
 from swarm.blackboard import Evidence
 from swarm.browser_agent import ActionResult, browse, read_current_page, BrowserSession
 from swarm.context import FINAL_MARGIN_S
 from swarm.extract import brief_section
 from swarm.sites import site_for
+
+PREP_LEAD_S = float(os.environ.get("SWARM_PREP_LEAD_S", 150))   # warm the wizard up this long before collection ends
+
+
+class CheckParams(BaseModel):
+    note: str = Field(default="", description="optional: which page/step this is (e.g. summary)")
+
+
+def expected_values(bid: dict) -> dict[str, list[str]]:
+    """What the portal's summary should show, per position (material, quantity, unit price) and for the bid."""
+    answer = bid.get("answer") or {}
+    out: dict[str, list[str]] = {}
+    lines = {l["position"]: l for l in bid.get("lines") or []}
+    for e in answer.get("positions") or []:
+        disp = (lines.get(e["position"]) or {}).get("display") or {}
+        out[e["position"]] = [str(e["material_number"]), str(e["quantity"]),
+                              disp.get("unit_price") or de_number(Decimal(str(e["unit_price"])))]
+    if answer.get("positions"):
+        out["total"] = [bid.get("total_display") or de_number(Decimal(str(answer.get("total_net") or 0)))]
+    return out
+
+
+def check_page(text: str, expected: dict[str, list[str]]) -> list[str]:
+    """Expected values not found on the page (numbers compared without spaces; case-insensitive)."""
+    flat = norm_ref(text)
+    return [f"{where}: {value}" for where, values in expected.items() for value in values
+            if value and norm_ref(value) not in flat]
 
 
 class TanParams(BaseModel):
@@ -67,7 +101,8 @@ class BidSubmitter(Agent):
         ctx = self.ctx
         if ctx.task.get("submission", {}).get("kind") == "api":
             return
-        bid = ctx.board.get("bid") or {"answer": {"decision": "bid", "positions": []}, "lines": []}
+        bid = ctx.board.get("bid") or ctx.board.get("bid_draft") or {"answer": {"decision": "bid", "positions": []},
+                                                                      "lines": []}
         facts = ctx.board.get("brief") or {}
         if bid.get("validation_errors"):
             self.log.warning("Bid validation issues require repair in the wizard: %s", bid["validation_errors"])
@@ -103,11 +138,33 @@ class BidSubmitter(Agent):
             "binding submission (accept browser dialog). done once portal confirms submission; report "
             "confirmation/receipt text. Call confirm_submission with an exact quote from the portal receipt before done. "
             "If get_signing_tan reports pending, keep this wizard open and poll that tool; do not request another TAN. "
-            "A failed attempt may already have submitted: inspect current portal status before any new binding action.")
+            "A failed attempt may already have submitted: inspect current portal status before any new binding action. "
+            "On the summary/review page call check_entries once (it compares the page with the values above); fix "
+            "what it reports missing before confirming; no need to read_page the summary yourself.")
+        prepared = ctx.shared.get("wizard_ready")
+        if prepared:
+            goal += (f"\n\nPREPARED: this tab is already logged in and in the bid wizard for this tender (nothing entered "
+                     f"yet). What the preparation saw: {str(prepared)[:400]}")
 
         tan_task = None
+        warm_mail = asyncio.create_task(self.warm_mailbox(mail_site))
+        expected = expected_values(bid)
 
         def tan_tool(tools):
+            @tools.action("Check the current page (bid summary) against the values to enter; lists what is missing.",
+                          param_model=CheckParams)
+            async def check_entries(params: CheckParams, browser_session: BrowserSession):
+                text = await read_current_page(browser_session)
+                missing = check_page(text, expected)
+                await ctx.board.set("submission_check", {"missing": missing, "checked": sum(map(len, expected.values())),
+                                                         "note": params.note})
+                timeline.mark("entries checked", missing=len(missing))
+                if missing:
+                    return ActionResult(extracted_content="NOT on this page (fix before confirming): " + "; ".join(missing),
+                                        long_term_memory="check_entries: missing " + "; ".join(missing)[:300])
+                return ActionResult(extracted_content=f"All {sum(map(len, expected.values()))} expected values are on "
+                                                      "this page.", long_term_memory="check_entries: all values present")
+
             @tools.action("Confirm acceptance using an exact receipt quote on the current portal page.", param_model=ReceiptParams)
             async def confirm_submission(params: ReceiptParams, browser_session: BrowserSession):
                 from swarm.normalize import norm_ref
@@ -126,6 +183,7 @@ class BidSubmitter(Agent):
                            "url": await browser_session.get_current_page_url()}
                 await ctx.board.set("submission", receipt)
                 await ctx.board.post(Evidence("submission.receipt", tender_site, receipt, source=receipt["url"], author=self.name))
+                timeline.mark("accepted submission", left=round(ctx.seconds_left()))
                 return ActionResult(extracted_content="Receipt recorded; finish now", is_done=True, success=True)
 
             @tools.action("Read newest signing TAN from our webmail (call right after requesting TAN).",
@@ -154,12 +212,17 @@ class BidSubmitter(Agent):
                            "signing-TAN message for this tender, read_page it, record kind 'mail.tan' with data "
                            "{\"tan\": \"...\", \"received\": \"...\", \"request\": \"...\"} copied exactly, then done "
                            "stating the TAN. Recording mail.tan completes this lookup immediately; record it once.")
-                    out = await browse(ctx, job, browser=3, site_id=mail_site, on_record=keep, max_steps=12,
-                                       author=f"{self.name}.tan", stop_reserve=FINAL_MARGIN_S,
-                                       dedupe_reads=False, stop_on_record="mail.tan")
+                    async with ctx.lock("main_tab.3"):      # after the inbox warm-up, in the same (logged-in) tab
+                        out = await browse(ctx, job, browser=3, site_id=mail_site, on_record=keep, max_steps=12,
+                                           author=f"{self.name}.tan", stop_reserve=FINAL_MARGIN_S,
+                                           dedupe_reads=False, stop_on_record="mail.tan")
                     tans = [r["data"].get("tan") for r in found if r["kind"] != "page" and r["data"].get("tan")]
                     text = f"TAN: {tans[-1]}" if tans else f"No TAN recorded. Mail agent said: {out['summary'][:300]}"
+                    if tans:
+                        timeline.mark("TAN received")
                     return text
+
+                timeline.mark("TAN requested", left=round(ctx.seconds_left()))
 
                 if params.new_request and tan_task is not None:
                     tan_task.cancel()
@@ -197,6 +260,66 @@ class BidSubmitter(Agent):
                 note = (f"\n\nNOTE: previous attempt stopped early ({out['summary'][:300]!r}). Browser may be mid-wizard: "
                         "check current page first, continue from there.")
         finally:
-            if tan_task is not None:
-                tan_task.cancel()
-                await asyncio.gather(tan_task, return_exceptions=True)
+            for task in (tan_task, warm_mail):
+                if task is not None:
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+
+    async def warm_mailbox(self, mail_site: str | None) -> None:
+        """Log the mail browser's main tab in and open the inbox while the wizard is filled, so the TAN lookup later
+        only opens the newest message (the submitter waits for the TAN otherwise)."""
+        ctx = self.ctx
+        try:
+            mail_site = mail_site or await site_for(ctx, "mail")
+            mail = ctx.site(mail_site)
+            mc = mail.get("credentials") or {}
+            async with ctx.lock("main_tab.3"):
+                with timeline.span("submit.prep", "mailbox"):
+                    out = await browse(ctx, f"Site (webmail): {mail['url']}\nLogin: username {mc.get('username')!r}, "
+                                            f"password {mc.get('password')!r}\n\nYOUR JOB: log in if needed, accept the "
+                                            "cookie wall, close popups, pass any access gate, open the inbox. Open no "
+                                            "message, search nothing. Then done.",
+                                       browser=3, site_id=mail_site, max_steps=6, author=f"{self.name}.mailbox",
+                                       stop_reserve=FINAL_MARGIN_S, dedupe_reads=False)
+            if out.get("done"):
+                timeline.mark("mailbox ready")
+        except Exception as error:  # noqa: BLE001 - only a time saver: the TAN lookup logs in itself if needed
+            self.log.info("mailbox warm-up failed: %s", error)
+
+
+@register
+class WizardPrep(Agent):
+    """Near the end of collection (PREP_LEAD_S before cutoff, or once every site's first pass is done), the tender
+    portal's main tab logs in, opens the tender and its bid wizard and stops at the first step without entering
+    anything. The submitter then starts in the wizard (ctx.shared["wizard_ready"] shortens the submission reserve)."""
+    phase = Phase.COLLECT
+    background = True
+    browser = 0
+
+    async def run(self) -> None:
+        ctx = self.ctx
+        # the tender scraper works in the same main tab: never before its pass is over
+        while ctx.board.get("done.tender") is None or (
+                ctx.time_left() > PREP_LEAD_S and not all(ctx.board.get(f"done.{r}") is not None
+                                                          for r in ("spec", "erp", "mail"))):
+            await asyncio.sleep(2)
+        if ctx.task.get("submission", {}).get("kind") == "api" or ctx.time_left() < 45:
+            return
+        site_id = await site_for(ctx, "tender")
+        site = ctx.site(site_id)
+        creds = site.get("credentials") or {}
+        reference = (ctx.board.get("brief") or {}).get("tender_reference")
+        async with ctx.lock("main_tab.0"):
+            with timeline.span("submit.prep", "wizard"):
+                out = await browse(
+                    ctx, f"Site (tender portal): {site['url']}\nLogin: username {creds.get('username')!r}, password "
+                         f"{creds.get('password')!r}\n\nYOUR JOB: prepare the bid submission for tender {reference}: "
+                         "log in if needed, accept necessary cookies, open the tender, register interest if the portal "
+                         "requires it, open its bid submission (Angebotsabgabe) wizard and stop at its FIRST step. Do "
+                         "NOT fill in, select, tick or submit anything in the wizard. done describing the wizard's "
+                         "steps/sections as shown.", browser=0, site_id=site_id, max_steps=8, author=self.name,
+                    stop_extra=0, careful=True)
+        if out.get("done"):
+            ctx.shared["wizard_ready"] = out.get("summary") or "wizard open"
+            timeline.mark("wizard ready", left=round(ctx.seconds_left()))
+        self.log.info("wizard prep done=%s: %s", out.get("done"), str(out.get("summary"))[:200])

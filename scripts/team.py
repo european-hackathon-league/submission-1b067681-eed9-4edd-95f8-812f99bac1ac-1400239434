@@ -23,7 +23,16 @@ from pathlib import Path
 BASE = "origin/main"
 SKIP = ("origin/HEAD", "origin/entire/")       # Entire's shadow branches are not developer work
 TMP = ".integration/tmp"
-TEST_CMD = [sys.executable, "-m", "pytest", "tests", "-q", "-p", "no:cacheprovider"]
+def _test_cmd() -> list[str]:
+    """pytest when this environment has it (CI installs the dev group), else the standard library's runner: a venv
+    synced without dev dependencies must not make every trial merge look red."""
+    import importlib.util
+    if importlib.util.find_spec("pytest") is not None:
+        return [sys.executable, "-m", "pytest", "tests", "-q", "-p", "no:cacheprovider"]
+    return [sys.executable, str(Path(__file__).resolve().parent / "run_tests.py"), "tests"]
+
+
+TEST_CMD = _test_cmd()
 
 
 def git(*args, cwd=None, check=True) -> str:

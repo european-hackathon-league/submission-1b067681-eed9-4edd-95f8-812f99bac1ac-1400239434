@@ -10,6 +10,12 @@ HTTP_TIMEOUT = httpx.Timeout(CALL_TIMEOUT_S, connect=8, write=15, pool=8)
 
 import models
 from openai import APIConnectionError, APIStatusError
+from swarm import timeline
+
+# Model slots (team limit: 32 concurrent Qwen calls). Browsing steps take a slot of the total; analysis, planning and
+# guard calls also take one of the analysis slots, so extraction can never starve the browsing agents.
+MAX_CONCURRENT = int(os.environ.get("SWARM_LLM_CONCURRENCY", "16"))
+ANALYSIS_CONCURRENT = int(os.environ.get("SWARM_ANALYSIS_CONCURRENCY", "0")) or max(1, MAX_CONCURRENT // 2)
 
 
 def parse_json(text: str):
@@ -26,9 +32,11 @@ def parse_json(text: str):
 
 
 class LLM:
-    def __init__(self, max_concurrent: int = 16):
+    def __init__(self, max_concurrent: int = MAX_CONCURRENT, analysis_concurrent: int | None = None):
         self._sem = asyncio.Semaphore(max_concurrent)   # team limit is 32 concurrent Qwen calls
-        self._analysis_sem = asyncio.Semaphore(max(1, max_concurrent // 2))
+        self._analysis_sem = asyncio.Semaphore(analysis_concurrent or
+                                               (ANALYSIS_CONCURRENT if max_concurrent == MAX_CONCURRENT
+                                                else max(1, max_concurrent // 2)))
         self._client = None
         self.calls = 0
         self.tokens = {"prompt": 0, "completion": 0}
@@ -48,18 +56,26 @@ class LLM:
             args["extra_body"] = {**(args.get("extra_body") or {}), **models.NO_THINKING}
         if tools:
             args["tools"] = tools
+        queued = timeline.now()
         async with self._analysis_sem, self._sem:
+            timeline.add("model.queue", "analysis", queued)
             # Bound each attempt, including providers that leave a connection open without replying.
             for attempt in range(2):
+                started = timeline.now()
                 try:
                     async with asyncio.timeout(CALL_TIMEOUT_S):
                         reply = await self.client.chat.completions.create(**args)
+                    timeline.add("model.call", "think" if think else "chat", started)
                     break
-                except (TimeoutError, models.httpx.TransportError, APIConnectionError):
+                except (TimeoutError, models.httpx.TransportError, APIConnectionError) as error:
+                    timeline.add("recovery", f"model {type(error).__name__}", started)
+                    timeline.count("model.failed")
                     if attempt:
                         raise
                     await asyncio.sleep(0.5)
                 except APIStatusError as error:
+                    timeline.add("recovery", f"model HTTP {error.status_code}", started)
+                    timeline.count("model.failed")
                     if attempt or (error.status_code < 500 and error.status_code != 429):
                         raise
                     await asyncio.sleep(0.5)

@@ -14,7 +14,7 @@ import asyncio
 import logging
 
 from swarm import Agent, Phase, register
-from swarm.extract import extract, page_block, pages
+from swarm.extract import extract, page_block, pages, settle, start_once
 from swarm.normalize import norm_ref, to_datetime, to_int
 
 log = logging.getLogger("QuantityAnalyzer")
@@ -89,27 +89,31 @@ async def publish(ctx) -> dict:
     return tender
 
 
-async def refresh(ctx) -> dict:
-    """Stream each completed extraction; a slow Q&A page cannot hide already known positions."""
+async def refresh(ctx, wait: bool = True) -> dict:
+    """Stream each completed extraction; a slow Q&A page cannot hide already known positions. Each page (and kind)
+    is extracted by its own task (swarm.extract.start_once); `wait=False` only starts the new ones."""
     cache = ctx.shared.setdefault("tender.extracted", {})
     ref = (ctx.board.get("brief") or {}).get("tender_reference", "")
-    async with ctx.lock("tender.extract"):
-        async def one(e, kind, shape, instruction):
-            key = (_key(e), kind)
-            if key in cache:
+
+    async def one(e, kind, shape, instruction):
+        key = (_key(e), kind)
+        try:
+            result = await extract(ctx, instruction, shape, [page_block(e)], list_key=kind)
+            if result.get("_incomplete"):
                 return
-            try:
-                result = await extract(ctx, instruction, shape, [page_block(e)], list_key=kind)
-                if result.get("_incomplete"):
-                    return
-                cache[key] = result
-                await publish(ctx)
-            except Exception as error:
-                ctx.board.error("QuantityAnalyzer", f"{kind} extraction: {type(error).__name__}")
-        await asyncio.gather(*(one(e, kind, shape, instruction) for e in pages(ctx, "tender")
-            for kind, shape, instruction in (
-                ("positions", POSITIONS_SHAPE, "Extract original tender positions and metadata. Do not treat Q&A quantities as original quantities."),
-                ("clarifications", QA_SHAPE, f"Extract every bidder Q&A for exact tender {ref}; ignore unrelated tenders."))))
+            cache[key] = result
+            await publish(ctx)
+        except Exception as error:
+            ctx.board.error("QuantityAnalyzer", f"{kind} extraction: {type(error).__name__}")
+    tasks = [start_once(ctx, "tender", (_key(e), kind), lambda e=e, k=kind, s=shape, i=instruction: one(e, k, s, i))
+             for e in pages(ctx, "tender")
+             for kind, shape, instruction in (
+                 ("positions", POSITIONS_SHAPE, "Extract original tender positions and metadata. Do not treat Q&A quantities as original quantities."),
+                 ("clarifications", QA_SHAPE, f"Extract every bidder Q&A for exact tender {ref}; ignore unrelated tenders."))
+             if (_key(e), kind) not in cache]
+    if not wait:
+        return ctx.board.get("tender") or {}
+    await settle(tasks)
     result = await publish(ctx)
     log.info("%d positions, %d Q&A", len(result.get("positions", [])), len(result.get("clarifications", [])))
     return result
@@ -124,7 +128,7 @@ class QuantityAnalyzer(Agent):
         while self.ctx.time_left() > 0:
             count = len(pages(self.ctx, "tender"))
             if count and count != seen:
-                await refresh(self.ctx)
+                await refresh(self.ctx, wait=False)      # new pages start at once; each publishes when extracted
                 seen = count
             if self.ctx.board.get("done.tender") is not None:
                 await refresh(self.ctx)

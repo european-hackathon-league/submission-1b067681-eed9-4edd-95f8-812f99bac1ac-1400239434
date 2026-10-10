@@ -307,6 +307,8 @@ class InterruptedCollection(unittest.IsolatedAsyncioTestCase):
         async def page_text(session): return 'Bid FIXTURE successfully submitted. Receipt 56789.'
         async def fake_browse(ctx, goal, **kwargs):
             nonlocal mail_calls, portal_calls
+            if kwargs['author'].endswith('.mailbox'):          # inbox warm-up at submit start
+                return {'summary':'inbox open', 'done':True, 'steps':1}
             if kwargs['browser'] == 3:
                 mail_calls += 1
                 await release.wait()

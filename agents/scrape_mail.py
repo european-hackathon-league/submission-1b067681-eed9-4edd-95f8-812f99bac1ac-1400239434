@@ -15,12 +15,12 @@ import os
 import asyncio
 
 from agents.analyze_discount import covered_topics, refresh
-from swarm.context import SUBMIT_RESERVE_S
 from swarm import Phase, register  # noqa: F401
 from swarm.scraper import SiteScraper
 from swarm.sites import site_for
 
 TOPIC_TABS = int(os.environ.get("SWARM_MAIL_TABS", "2"))   # parallel mail topic tabs; was 3 (sandbox CPU)
+MAIL_STOP_EXTRA_S = 150   # mail browsing ends this long before collecting does (mail extraction is the slowest)
 
 SEARCH_RULES = (
     "Mailbox search combines words with AND and shows limited hits. Look-alike references (same reference with "
@@ -51,8 +51,11 @@ class MailScraper(SiteScraper):
              "(sender, date) in collapsed 'envelope/headers' section, which read_page includes.")
 
     async def browse(self, job: str, **kwargs):
-        kwargs.setdefault("stop_reserve", SUBMIT_RESERVE_S + 150)
+        kwargs.setdefault("stop_extra", MAIL_STOP_EXTRA_S)
         return await super().browse(job, **kwargs)
+
+    def stop_extra(self, kwargs: dict) -> float:
+        return kwargs.get("stop_extra", MAIL_STOP_EXTRA_S)
 
     async def login(self) -> None:
         try:
@@ -86,8 +89,11 @@ class MailScraper(SiteScraper):
             out = await self.browse_until_done(INDEX_JOB, attempts=2)
             await self.ctx.board.set(f"{self.name}.summary", out["summary"])
             await self.ctx.board.set("done.mail_core", True)
-            from agents.analyze_discount import publish
-            valid = await publish(self.ctx)
+            try:        # the index pass's messages decide which topic searches are still needed (no duplicate reads)
+                valid = await asyncio.wait_for(refresh(self.ctx), timeout=45)
+            except TimeoutError:
+                from agents.analyze_discount import publish
+                valid = await publish(self.ctx)
             jobs = self.topic_jobs(facts, covered_topics(valid))
             if jobs and self.ctx.time_left() > 120:
                 self.log.info("topics without a valid message: %d searches", len(jobs))
