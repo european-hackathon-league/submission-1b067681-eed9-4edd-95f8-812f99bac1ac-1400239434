@@ -6,39 +6,32 @@ Docs: $API/docs/building-an-agent.md, $API/docs/run-contract.md, and the rules: 
 """
 import asyncio
 import json
+import logging
 import sys
 
 from playwright.async_api import async_playwright
 
-import browsers
-import models  # noqa: F401  models.ask_qwen, models.ask_clef: see models.py
 import run as contract
+from swarm.orchestrator import run_swarm
 
 
-async def solve(task: dict, page) -> dict | None:
-    """TODO: your agent goes here.
+async def solve(task: dict, playwright, scored: bool) -> dict | None:
+    """Runs the swarm (see docs/SWARM.md). Agents live in agents/; the orchestrator runs them phase by phase.
 
-    `task` is the run: task["brief"] (the task and its rules), task["access"] (each website's url and login),
-    task["submission"] (where the answer goes) and task["answer_schema"]. `page` is a Playwright page in browser 1.
-
-    For an "api" submission, return the answer and main() submits it. For a "site" submission, enter the answer on
-    that website yourself, then return None.
-
-    Mind the clock: a scored run has 20 minutes, and `contract.seconds_left(task)` says how many are left. Every part
-    of the answer scores on its own, so stop and submit your best answer about a minute before the end; an answer
-    that comes too late scores 0.
+    For an "api" submission the swarm leaves the answer in board.results["answer"]; for a "site" submission the
+    submit agent enters it on the website and the result is None.
     """
-    return None
+    return await run_swarm(task, playwright, scored)
 
 
 async def main() -> int:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     task, token = contract.load_run()
     sites = ", ".join(f"{site.get('siteId')} {site.get('url')}" for site in task["access"])
     print(f"Run {task.get('run_id') or '(local: the scouting logins, nothing counts)'}; websites: {sites}; "
           f"answer via {task['submission']['kind']}", flush=True)
     async with async_playwright() as playwright:
-        browser, page = await browsers.connect(playwright)  # more browsers: browsers.connect(playwright, 1), ...
-        answer = await solve(task, page)
+        answer = await solve(task, playwright, scored=bool(token))
     if answer is None:
         print("No answer to submit: build your agent in solve() in agent.py", flush=True)
         return 0

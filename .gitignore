@@ -34,3 +34,6 @@ __pycache__/
 .env.*
 *.tar.gz
 
+
+# Swarm local dev cache (holds scouting data: never commit/package)
+.swarm/
