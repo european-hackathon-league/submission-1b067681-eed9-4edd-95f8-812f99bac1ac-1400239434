@@ -16,6 +16,15 @@ from decimal import ROUND_HALF_UP, Decimal
 CENT = Decimal("0.01")
 ZERO = Decimal("0")
 
+# The websites pad identifiers and numbers with invisible characters, so text copied from a page does not compare
+# equal to what it looks like. Strip them before matching, computing or entering anything.
+INVISIBLE = dict.fromkeys(map(ord, "​‌‍⁠﻿­"), None)
+
+
+def plain(text) -> str:
+    """Text without invisible padding, whitespace collapsed (non-breaking spaces count as spaces)."""
+    return " ".join(str(text or "").translate(INVISIBLE).replace(" ", " ").split())
+
 
 def D(value) -> Decimal:
     """A Decimal from what a page shows: accepts German formats like '1.234,56' or '12,5 %'."""
@@ -25,7 +34,7 @@ def D(value) -> Decimal:
         return Decimal(value)
     if isinstance(value, float):
         return Decimal(repr(value))
-    text = str(value).strip().replace(" ", "").replace(" ", "").replace("%", "").replace("€", "")
+    text = plain(value).replace(" ", "").replace("%", "").replace("€", "")
     text = text.replace("EUR", "")
     if "," in text and "." in text:
         # the later separator is the decimal one: 1.234,56 (German) or 1,234.56 (English)
@@ -235,8 +244,8 @@ def price_position(facts: PositionFacts, discount_percent) -> PricedPosition:
     fees = D(facts.setup_fee) + D(facts.shared_setup) + D(facts.carton_cost) - D(facts.project_bonus)
     unit_price = round_cents(base + surcharge + fees / facts.pieces)
     entry = {
-        "position": facts.position,
-        "material_number": facts.material_number,
+        "position": plain(facts.position),
+        "material_number": plain(facts.material_number),
         "quantity": facts.pieces,
         "unit_price": float(unit_price),
         "lead_time_weeks": facts.lead_time_weeks,
@@ -261,12 +270,14 @@ class Bid:
 
 def answer(bid: Bid) -> dict:
     """The answer object for the configurator / answer_schema. no_bid: no positions, total 0 (rule 8).
-    Partially known bids still go out: leave unknown positions out and say so in `notes` (rule 9)."""
+    Partially known bids still go out: leave unknown positions out and say so in `notes` (rule 9).
+    The tender reference decides eligibility, so it goes out without invisible padding."""
+    reference = plain(bid.tender_reference)
     if bid.decision == "no_bid":
-        return {"tender_reference": bid.tender_reference, "decision": "no_bid", "currency": "EUR",
+        return {"tender_reference": reference, "decision": "no_bid", "currency": "EUR",
                 "discount_percent": 0, "positions": [], "total_net": 0, "notes": bid.notes}
     priced = [price_position(p, bid.discount_percent) for p in bid.positions]
     total = round_cents(sum((p.line_total for p in priced), ZERO))   # rule 7: sum of qty x rounded unit price
-    return {"tender_reference": bid.tender_reference, "decision": "bid", "currency": "EUR",
+    return {"tender_reference": reference, "decision": "bid", "currency": "EUR",
             "discount_percent": float(D(bid.discount_percent)), "positions": [p.entry for p in priced],
             "total_net": float(total), "notes": bid.notes}
