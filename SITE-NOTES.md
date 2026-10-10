@@ -76,3 +76,27 @@ Presents itself as "SAP GUI für HTML", client PRD/100. Every path first serves 
 - The receipt field's label is CSS-generated (`content: attr(data-label)`), so it is not in the text either;
   read `data-label` if you need it.
 - Canvases are painted by a script after load: capture them a moment later or you get a blank image.
+
+## Reading obfuscated values — the one rule that covers most of it
+
+The sites hide values from naive scraping in four different ways, and **the accessible name is the reliable
+channel**: `aria-label` carries the clean value in most cases, so prefer it over `innerText` everywhere.
+
+| Hidden how | Where seen | Read it from |
+|---|---|---|
+| Zero-width padding | every identifier | `aria-label`, else `plain()` |
+| Painted into `<canvas>` | ERP Empfangsnummer, supplier-portal Belegnummer, spec Bohrung | `aria-label` when present, else `models.read_image` |
+| CSS hover tooltip, `display:none` | Q&A dates, certification | `[role=tooltip]` textContent |
+| CSS-generated label | receipt field | `data-label` attribute |
+
+A cell holding a canvas contributes **no** `innerText`, so a row read as text silently loses a column and every
+later value shifts left. Read tables cell by cell, never by splitting the row's text.
+
+### Specification viewer
+
+- Requirements live in an iframe: `/documents/specification/viewer?revision=<rev>`, one requirement per page
+  (`&page=N`). The header says `gültig` on the governing revision.
+- Numeric cells are tagged with a locale, `200 (en-US)` / `210 (de-DE)`. Parse per the tag: thousands and
+  decimal separators swap between them.
+- Revision dates in the history are each tagged `(MM/TT)` or `(TT/MM)`, and the tag varies between renders of
+  the same table. Normalise per row; sorting by revision number gives the wrong answer.
