@@ -92,6 +92,87 @@ class BrowserControls(unittest.IsolatedAsyncioTestCase):
 
 
 class InterruptedCollection(unittest.IsolatedAsyncioTestCase):
+    async def test_pagination_saves_first_page_before_next_page_stalls(self):
+        from swarm import browser_agent as ba
+        ctx = Context(task={'brief':'', 'access':[]}, board=Blackboard(), llm=None, pool=None)
+        saved, next_started = [], asyncio.Event()
+        class Session:
+            async def get_current_page_url(self): return 'https://fixture.example/list'
+            async def get_current_page_title(self): return 'Fixture list'
+        async def emit(record): saved.append(record)
+        async def read(session): return 'First page requirement X with its attributes'
+        async def evaluate(session, js, *args):
+            next_started.set()
+            await asyncio.Event().wait()
+        tool = ba.build_tools(ctx, 'fixture', 'test', emit).registry.registry.actions['read_page'].function
+        with patch.object(ba, 'read_current_page', read), patch.object(ba, '_evaluate', evaluate):
+            task = asyncio.create_task(tool(params=ba.ReadParams(topic='requirements', next_page_link='Next'), browser_session=Session()))
+            await asyncio.wait_for(next_started.wait(), 2)
+            self.assertEqual(len(saved), 1)
+            self.assertIn('requirement X', saved[0]['data']['text'])
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        self.assertEqual(len(saved), 1)
+
+    async def test_pagination_receipt_counts_all_pages_without_duplicate_evidence(self):
+        from swarm import browser_agent as ba
+        ctx = Context(task={'brief':'', 'access':[]}, board=Blackboard(), llm=None, pool=None)
+        saved, index = [], 0
+        class Session:
+            async def get_current_page_url(self): return 'https://fixture.example/list'
+            async def get_current_page_title(self): return 'Fixture list'
+        async def emit(record): saved.append(record)
+        async def read(session): return f'Requirement {index} on this page'
+        async def evaluate(session, js, *args):
+            nonlocal index
+            if index == 2: return 'missing'
+            index += 1
+            return 'clicked'
+        tool = ba.build_tools(ctx, 'fixture', 'test', emit).registry.registry.actions['read_page'].function
+        with patch.object(ba, 'read_current_page', read), patch.object(ba, '_evaluate', evaluate):
+            result = await tool(params=ba.ReadParams(topic='requirements', next_page_link='Next'), browser_session=Session())
+        self.assertEqual(len(saved), 3)
+        self.assertEqual([e['data']['page_in_read'] for e in saved], [1,2,3])
+        self.assertIn('3 pages', result.long_term_memory)
+        self.assertIn('LAST page', result.extracted_content)
+
+    async def test_erp_job_does_not_wait_for_unrelated_extraction(self):
+        from agents import analyze_materials
+        ctx = Context(task={'brief':'', 'access':[]}, board=Blackboard(), llm=None, pool=None)
+        slow = Evidence('erp.page', 'erp', {'url':'slow', 'topic':'erp search', 'text':'slow'})
+        quick = Evidence('erp.page', 'erp', {'url':'quick', 'topic':'erp search', 'text':'quick'})
+        started = asyncio.Event()
+        calls = []
+        async def extract(ctx, instruction, shape, blocks, **kwargs):
+            calls.append(blocks[0])
+            if 'slow' in blocks[0]:
+                started.set()
+                await asyncio.Event().wait()
+            return {'materials':[{'material':'M'}]}
+        with patch.object(analyze_materials, 'extract', extract):
+            pending = asyncio.create_task(analyze_materials.extract_erp(ctx, [slow]))
+            await asyncio.wait_for(started.wait(), 2)
+            await asyncio.wait_for(asyncio.gather(
+                analyze_materials.extract_erp(ctx, [quick]), analyze_materials.extract_erp(ctx, [quick])), 2)
+            self.assertEqual(len(calls), 2)
+            self.assertIn('M', ctx.board.get('erp')['materials'])
+            self.assertFalse(pending.done())
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+
+    async def test_coordinator_cannot_skip_missing_positions_or_unquoted_qa(self):
+        from agents.coordinate import CollectionCoordinator, find_gaps
+        class LLM:
+            async def ask_json(self, *args, **kwargs):
+                return {'skipped':['tender positions', {'id':'tender q&a','source':'fixture','quote':'invented absence evidence'}]}
+        ctx = Context(task={'brief':'', 'access':[]}, board=Blackboard(), llm=LLM(), pool=None)
+        c = CollectionCoordinator(ctx)
+        await c.plan([{'id':'tender positions','role':'tender'}, {'id':'tender q&a','role':'tender'}])
+        self.assertFalse(c.tried)
+        ctx.board.results['tender'] = {'positions':[{'position':'1'}], 'clarifications':[]}
+        gaps = find_gaps(ctx.board, {'tender'}, {'tender':['bidder Q&A']})
+        self.assertIn('tender q&a', {g['id'] for g in gaps})
+
     async def test_browsing_steps_reuse_one_client(self):
         from swarm.browser_agent import QwenChat, ChatOpenAI
         async def create(**kwargs): return NS(choices=[], usage=None)

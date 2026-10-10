@@ -785,15 +785,32 @@ def build_tools(ctx, site_id: str, author: str, emit, dedupe_reads: bool = True)
                     "site": site_id, "author": author})
         return ActionResult(extracted_content=f"recorded {params.kind}")
 
-    async def read_one(target: str | None, params: ReadParams, browser_session: BrowserSession) -> tuple[str, str]:
+    async def read_one(target: str | None, params: ReadParams, browser_session: BrowserSession) -> tuple[str, str, int]:
         if target:
             await browser_session.navigate_to(target)
             await asyncio.sleep(0.8)
         url = await browser_session.get_current_page_url()
-        pages = [await read_current_page(browser_session)]
+        title = await browser_session.get_current_page_title()
+        pages = []
+        page_limit = max(1, min(params.max_pages, 20))
+
+        async def keep(text):
+            pages.append(text)
+            if params.topic:
+                # Publish before moving on: cancellation or a stalled next page must not lose earlier evidence.
+                await emit({"kind": f"{params.evidence_role}.page" if params.evidence_role in ("tender", "spec", "erp", "mail") else "page",
+                            "data": {"topic": params.topic, "url": url, "title": title, "pages": 1,
+                                     "page_in_read": len(pages), "text": text},
+                            "source": url, "note": "", "site": site_id, "author": author})
+                reads[url] = {"text": "\n\n----- next page -----\n\n".join(pages),
+                              "author": author, "topic": params.topic, "pages": len(pages), "complete": False}
+
+        await keep(await read_current_page(browser_session))
+        complete = not params.next_page_link
         if params.next_page_link:
-            for _ in range(max(0, min(params.max_pages, 20) - 1)):
+            for _ in range(page_limit - 1):
                 if await _evaluate(browser_session, NEXT_JS, params.next_page_link) != "clicked":
+                    complete = True
                     break
                 text = pages[-1]
                 for poll in range(12):
@@ -803,17 +820,15 @@ def build_tools(ctx, site_id: str, author: str, emit, dedupe_reads: bool = True)
                         break
                 if text == pages[-1] or text in pages:
                     break
-                pages.append(text)
+                await keep(text)
         text = "\n\n----- next page -----\n\n".join(pages)
-        if params.topic and len(text) > 200:
-            reads[url] = {"text": text, "author": author, "topic": params.topic}
         if params.topic:
-            title = await browser_session.get_current_page_title()
-            await emit({"kind": f"{params.evidence_role}.page" if params.evidence_role in ("tender", "spec", "erp", "mail") else "page", "data": {"topic": params.topic, "url": url, "title": title,
-                                                 "pages": len(pages), "text": text,
-                                                 "pagination_limit": bool(params.next_page_link and len(pages) >= params.max_pages)},
-                        "source": url, "note": "", "site": site_id, "author": author})
-        return url, text
+            reads[url]["complete"] = complete
+        if params.next_page_link and len(pages) >= page_limit:
+            text += "\n[Pagination limit reached; inspect whether further pages remain.]"
+        elif not complete:
+            text += "\n[Pagination did not advance; earlier pages were saved, but further pages may remain.]"
+        return url, text, len(pages)
 
     @tools.action("Read full text of current page (or of `url` / several `urls`) incl. iframes, collapsed sections, "
                   "tooltips; `next_page_link` follows all pages; `topic` saves as evidence.", param_model=ReadParams)
@@ -829,22 +844,24 @@ def build_tools(ctx, site_id: str, author: str, emit, dedupe_reads: bool = True)
         done = []
         for target in targets or [None]:
             known = reads.get(target) if (target and dedupe_reads and not params.refresh) else None
-            if known and not params.next_page_link:      # another agent saved this page already: no second visit
+            if known and known.get("complete", True) and not params.next_page_link:
                 done.append((target, f"(already saved by {known['author']} as '{known['topic']}'; this tab did NOT "
-                                     f"navigate there)\n{known['text']}"))
+                                     f"navigate there)\n{known['text']}", known.get("pages", 1)))
                 continue
             try:
                 done.append(await read_one(target, params, browser_session))
             except Exception as error:      # one bad page must not lose the others
-                done.append((target or current, f"(could not read: {error})"))
+                done.append((target or current, f"(could not finish read: {type(error).__name__}: {error}; pages already saved remain available)", 0))
         limit = PAGE_TEXT_LIMIT // len(done)
         parts, memos = [], []
-        for url, text in done:
+        for url, text, count in done:
             shown = text if len(text) <= limit else \
                 text[:limit] + ("\n[... truncated here; the full text is saved]" if params.topic else "\n[... truncated]")
             parts.append(f"=== {url}\n{shown}")
-            memos.append(f"{url} ({len(text)} chars)")
+            memos.append(f"{url} ({count} pages, {len(text)} chars)")
         memo = "Read " + ", ".join(memos) + (f"; saved as '{params.topic}'" if params.topic else "")
+        if params.next_page_link:
+            memo += ". Browser now shows the LAST page visited; earlier pages above were already read. Do not restart the list merely because the browser shows its last page."
         return ActionResult(extracted_content=memo + "\n\n" + "\n\n".join(parts), include_extracted_content_only_once=True,
                             long_term_memory=memo[:600])
 

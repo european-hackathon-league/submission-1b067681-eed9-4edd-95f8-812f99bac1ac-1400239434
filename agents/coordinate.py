@@ -33,7 +33,7 @@ MAX_JOBS_PER_ROLE = 3
 ANALYSIS_S = 60          # jobs stop this long before collect ends, so the analyses can still run on their pages
 SETTLE_S = 45           # a site whose analysis has not finished this long after its first pass is treated as done
 
-READY = {"tender": ("done.tender", "quantities"), "spec": ("done.spec", "requirements_final"),
+READY = {"tender": ("done.tender", "tender_final"), "spec": ("done.spec", "requirements_final"),
          "erp": ("done.erp", "materials"), "mail": ("done.mail", "mail_final")}
 
 KEY_SECTIONS = {"konditionsgruppe": ("condition_rules", "condition rules (Konditionsregeln)"),
@@ -47,9 +47,12 @@ did a first pass. You get the GAPS (facts the bid still needs), what each site h
 Write follow-up jobs: one job = one browser agent on one site, a few sentences: what to open/search and what to
 read_page with which topic label (e.g. 'erp prices <material>'). Put gaps one agent can do in one go into one job (at
 most 3 gaps per job); separate jobs run in parallel. Name exact identifiers (material numbers, keys, references).
-Skip a gap when the saved topics/summaries show the data does not exist on the site (e.g. no Q&A at all). Never ask for
+Skip an optional gap only with a direct quote from observed page evidence explicitly showing the data does not exist
+(e.g. no Q&A at all). A topic label or scraper summary is not absence evidence. Never skip missing tender positions
+or specification requirements. Never ask for
 a page already saved unless it lacked the needed part (then say which part: e.g. open the quantity-scale register).
-Reply JSON: {"jobs": [{"role": "tender|spec|erp|mail", "gaps": ["gap id", ...], "job": "..."}], "skipped": ["gap id"]}"""
+Reply JSON: {"jobs": [{"role": "tender|spec|erp|mail", "gaps": ["gap id", ...], "job": "..."}],
+"skipped": [{"id": "gap id", "source": "observed page URL", "quote": "exact absence evidence"}]}"""
 
 SITES = {"tender": "tender portal: tender overview, documents (bill of quantities), bidder Q&A",
          "spec": "buyer's portal: technical specification revisions and requirement tables",
@@ -84,7 +87,7 @@ def find_gaps(board, ready: set[str], saved_topics: dict[str, list[str]]) -> lis
     if "tender" in ready and not positions:
         gap("tender", "tender positions", "bill of quantities / position overview: positions, quantities, units, "
                                           "requirement references")
-    if positions and not any(w in t for t in saved_topics.get("tender", []) for w in ("q&a", "frage", "question", "clarif", "bieter")):
+    if positions and not tender.get("clarifications"):
         gap("tender", "tender q&a", "bidder Q&A of the tender, all pages (if the tender has any)")
     if (board.get("discount") or {}).get("source") in ("no valid approval found", "latest approval invalid"):
         gap("mail", "mail discount", f"sales director's discount approval for {brief.get('tender_reference')} "
@@ -217,6 +220,8 @@ class CollectionCoordinator(Agent):
                   "scenario_date": (board.get("brief") or {}).get("scenario_date"),
                   "gaps": gaps, "sites": {r: SITES[r] for r in {g["role"] for g in gaps}},
                   "saved_topics": self.saved_topics(), "first_pass_summaries": summaries,
+                  "observed_pages": [{"source": e.source or e.data.get("url"), "text": e.data.get("text", "")[:1800]}
+                                     for role in {g["role"] for g in gaps} for e in pages(self.ctx, role)[-3:]],
                   "earlier_followups": self.history[-8:], "site_tips": board.get("tips") or {}}
         reply = await self.ctx.llm.ask_json(SYSTEM, json.dumps(prompt, ensure_ascii=False, default=str), think=True)
         jobs, per_role = [], {}
@@ -230,7 +235,20 @@ class CollectionCoordinator(Agent):
                 continue
             per_role[role] = per_role.get(role, 0) + 1
             jobs.append({"role": role, "gaps": ids, "job": str(j["job"]).strip()})
-        skipped = [i for i in (reply or {}).get("skipped") or [] if i in known]
+        skipped = []
+        for item in (reply or {}).get("skipped") or []:
+            if not isinstance(item, dict) or item.get("id") not in known:
+                continue
+            gid = item["id"]
+            if gid == "tender positions" or gid.startswith("spec requirement "):
+                continue
+            quote = " ".join(str(item.get("quote") or "").split())
+            if len(quote) >= 12 and any(
+                item.get("source") == (e.source or e.data.get("url"))
+                and quote in " ".join(str(e.data.get("text") or "").split())
+                for e in pages(self.ctx, known[gid]["role"])
+            ):
+                skipped.append(gid)
         if skipped:
             self.log.info("gaps skipped by the model: %s", skipped)
         self.tried |= set(skipped)

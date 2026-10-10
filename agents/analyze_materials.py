@@ -104,14 +104,17 @@ def _key(e) -> tuple:
     return (e.data.get("url"), hash(e.data.get("text", "")))
 
 
-async def extract_erp(ctx) -> dict:
+async def extract_erp(ctx, evidence=None) -> dict:
     """Extract every saved ERP page not extracted yet (one model call per page, in parallel); returns the cache
     {page key: {"kind", "topic", "url", "materials", "conditions", "stock"}}."""
     cache = ctx.shared.setdefault("erp.extracted", {})
-    async with ctx.lock("erp.extract"):
-        todo = [e for e in pages(ctx, "erp") if _key(e) not in cache]
+    todo = [e for e in (pages(ctx, "erp") if evidence is None else evidence) if _key(e) not in cache]
 
-        async def one(e) -> dict:
+    async def one(e) -> dict:
+        # A slow unrelated page must not block a finished search from scheduling material records.
+        async with ctx.lock(f"erp.extract.{_key(e)!r}"):
+            if _key(e) in cache:
+                return cache[_key(e)]
             kind = page_kind(e.data.get("topic"))
             shape, keys, instruction = SHAPES[kind]
             out = await extract(ctx, instruction, shape, [page_block(e)], list_key=keys, chunk_size=25_000)
@@ -119,12 +122,12 @@ async def extract_erp(ctx) -> dict:
                     **{k: out.get(k) or [] for k in ("materials", "conditions", "stock")}}
             if not result["_incomplete"]:
                 cache[_key(e)] = result
+                await publish(ctx, cache)
             return result
-
-        replies = await asyncio.gather(*(one(e) for e in todo), return_exceptions=True)
-        for e, r in zip(todo, replies):
-            if isinstance(r, dict) and not r.get("_incomplete"):
-                cache[_key(e)] = r
+    replies = await asyncio.gather(*(one(e) for e in todo), return_exceptions=True)
+    for r in replies:
+        if isinstance(r, Exception):
+            ctx.board.error("MaterialMatcher", f"ERP extraction: {type(r).__name__}")
     return cache
 
 

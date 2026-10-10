@@ -21,6 +21,7 @@ import itertools
 from agents.analyze_materials import extract_erp, merge_materials, search_candidates
 from swarm import Phase, register  # noqa: F401
 from swarm.browser_agent import Tab
+from swarm.blackboard import Evidence
 from swarm.context import SUBMIT_RESERVE_S
 from swarm.normalize import norm_ref
 from swarm.scraper import SiteScraper
@@ -124,28 +125,40 @@ class ErpScraper(SiteScraper):
         self.pending += 1
         self.queue.put_nowait((priority, next(self._order), job))
 
-    async def blocked(self, material: str) -> bool:
+    def blocked(self, material: str) -> bool:
         """True if the material's record page (read meanwhile) says it is blocked: its prices and stock are not needed."""
-        info = merge_materials(list((await extract_erp(self.ctx)).values())).get(norm_ref(material)) or {}
+        info = merge_materials(list(self.ctx.shared.get("erp.extracted", {}).values())).get(norm_ref(material)) or {}
         return info.get("is_active") is False
+
+    async def extract_job(self, out: dict) -> dict:
+        evidence = []
+        for record in out.get("records") or []:
+            data = record.get("data") or {}
+            text = data.get("text") or data.get("_observed_text")
+            if text:
+                evidence.append(Evidence("erp.page", self.site_id,
+                    {**data, "text": text, "url": data.get("url") or record.get("source"),
+                     "topic": data.get("topic") or record.get("kind", "")}))
+        return await extract_erp(self.ctx, evidence=evidence)
 
     async def do(self, job: tuple, tab: Tab | None) -> None:
         stop = SUBMIT_RESERVE_S + ANALYSIS_TIME_S
         if job[0] == "search":
             item = job[1]
-            await self.browse_until_done(search_goal(item), attempts=2, tab=tab, max_steps=14, stop_reserve=stop)
-            found = search_candidates(await extract_erp(self.ctx), item)
+            out = await self.browse_until_done(search_goal(item), attempts=2, tab=tab, max_steps=14, stop_reserve=stop)
+            found = search_candidates(await self.extract_job(out), item)
             self.log.info("search %s: candidates %s", item["group"], found)
             for material in found:
                 self.add(RECORD, ("record", material, item))
             return
         kind, material, item = job
-        if kind != "record" and await self.blocked(material):
+        if kind != "record" and self.blocked(material):
             self.log.info("%s %s skipped: material blocked", kind, material)
             return
-        await self.browse_until_done(material_goal(kind, material, item), attempts=2, tab=tab, max_steps=16,
+        out = await self.browse_until_done(material_goal(kind, material, item), attempts=2, tab=tab, max_steps=16,
                                      stop_reserve=stop)
-        if kind == "record" and not await self.blocked(material):
+        await self.extract_job(out)
+        if kind == "record" and not self.blocked(material):
             self.add(PRICES, ("prices", material, item))
             self.add(STOCK, ("stock", material, item))
 

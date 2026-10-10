@@ -32,8 +32,9 @@ class TenderScraper(SiteScraper):
                 "1. Log in, accept necessary cookies, open the tender (search its reference if not listed).\n"
                 "2. read_page tender overview with topic 'tender overview' (reference, buyer, deadline + timezone).\n"
                 "3. Documents locked -> register interest now.\n"
-                "4. share_tip the URL of this tender's bid submission page if a link to it shows (the submitter "
-                "needs it later). Then done (other agents read Q&A and documents).")
+                "4. If the submission link's URL is already visible, share_tip it. This is optional: do not open "
+                "the wizard or spend extra steps finding the link. Finish immediately after saving the overview "
+                "and obtaining document access so collection can start.")
 
     def required(self):
         return [(("q&a", "bieterfrage", "frage", "question"), QA_JOB),
@@ -44,7 +45,7 @@ class TenderScraper(SiteScraper):
     async def run(self) -> None:
         try:
             self.site_id = self.site_id or await site_for(self.ctx, self.role)
-            first = await self.browse_until_done(self.goal(), max_steps=14)
+            first = await self.browse_until_done(self.goal(), attempts=1, max_steps=8)
             await self.ctx.board.set(f"{self.name}.summary", first["summary"])
             # main tab: documents; new tab: Q&A (shares the login)
             await asyncio.gather(self.browse_until_done(DOCS_JOB, attempts=2, max_steps=20),

@@ -61,6 +61,7 @@ class SiteScraper(Agent):
         """browse(); if the agent stopped without finishing (errors, step limit), start again with a note on what
         is already saved, while time allows."""
         out = {"summary": "", "done": False}
+        records = []
         for attempt in range(attempts):
             note = ""
             if attempt:
@@ -68,6 +69,7 @@ class SiteScraper(Agent):
                 note = (f"\n\nNOTE: previous attempt stopped early ({out['summary'][:300]!r}). Already saved: "
                         f"{saved or 'nothing'}. Do only what is missing.")
             out = await self.browse(job + note, **kwargs)
+            records.extend(out.get("records") or [])
             rejected = self.ctx.shared.get("site_invalidations", {}).get(self.role, set())
             if self.site_id in rejected:
                 self.site_id = await site_for(self.ctx, self.role)
@@ -76,7 +78,7 @@ class SiteScraper(Agent):
                 out["done"] = False
             if out["done"] or self.ctx.seconds_left() - kwargs.get("stop_reserve", SUBMIT_RESERVE_S + ANALYSIS_RESERVE_S) < 120:
                 break
-        return out
+        return {**out, "records": records}
 
     async def browse_in_tabs(self, jobs: list[str], *, browser: int | None = None, attempts: int = 2,
                              **kwargs) -> list[dict]:

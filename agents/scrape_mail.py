@@ -29,11 +29,13 @@ SEARCH_RULES = (
     "page link. Skip signing-TAN mails.")
 
 INDEX_JOB = (
-    "Search the exact tender reference ALONE (no other word) in the inbox, then in the archive folder. read_page "
-    "each result list with topic 'mail index' (next_page_link = exact text of next-page link, so all result pages are "
-    "read). Then read_page(urls=[...]) EVERY message in these lists whose subject or preview names exactly this "
-    "reference (no look-alikes with suffix, no other tenders, no signing-TAN mails), topic 'mail messages', up to 12 "
-    "urls per read_page. Then done, listing the subjects read.\n" + SEARCH_RULES)
+    "Search the exact tender reference ALONE (no other word), first inbox then archive. read_page each result "
+    "page with topic 'mail index'. On EACH result page, immediately read the matching message links before "
+    "moving to another index page or folder; do not spend the entire budget collecting indexes. Prioritize "
+    "discount approval and technical release messages from the authorized senders, then other commercial terms. "
+    "Use read_page(urls=[observed message links], topic='mail messages'), up to 12 URLs. Return to the observed "
+    "index URL to continue pagination. Read all messages for the exact reference, excluding look-alike suffixes, "
+    "other tenders and signing TANs. Then done, listing subjects read.\n" + SEARCH_RULES)
 
 
 @register
