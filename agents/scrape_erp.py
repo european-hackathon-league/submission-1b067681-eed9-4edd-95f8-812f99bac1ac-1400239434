@@ -43,7 +43,10 @@ HINTS = ("Adapt to the observed software; these are possible patterns, not requi
          "tabs/registers, read all with ONE read_page(urls=[...]); transactions often take the material number "
          "directly in their entry field.")
 
-SEARCH, RECORD, PRICES, STOCK = 0, 1, 2, 2       # job priorities: searches first, then records, then prices/stock
+# job priorities: searches first; then a candidate's record AND prices together, stock after. Prices used to wait for
+# every record (RECORD 1 < PRICES 2, queued only after the record): at 6-12 steps per record, collection ended before
+# any price was read (run_aa35ba17eddd5994: 0 of 5 materials priced).
+SEARCH, RECORD, PRICES, STOCK = 0, 1, 1, 2
 
 
 def work_items(requirements: dict) -> list[dict]:
@@ -152,6 +155,8 @@ class ErpScraper(SiteScraper):
             self.log.info("search %s: candidates %s", item["group"], found)
             for material in found:
                 self.add(RECORD, ("record", material, item))
+                self.add(PRICES, ("prices", material, item))
+                self.add(STOCK, ("stock", material, item))
             return
         kind, material, item = job
         if kind != "record" and self.blocked(material):
@@ -160,9 +165,6 @@ class ErpScraper(SiteScraper):
         out = await self.browse_until_done(material_goal(kind, material, item), attempts=2, tab=tab, max_steps=16,
                                      stop_reserve=stop)
         await self.extract_job(out)
-        if kind == "record" and not self.blocked(material):
-            self.add(PRICES, ("prices", material, item))
-            self.add(STOCK, ("stock", material, item))
 
     async def worker(self, tab: Tab | None) -> None:
         """Takes jobs until the queue is empty and no running job can add more (or time is up)."""

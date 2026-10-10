@@ -312,3 +312,27 @@ class ConditionFragments(unittest.TestCase):
         b = {"material": "M-9", "valid_from": "01.07.2030", "scales": []}
         frag = {"material": "M-9", "scales": [{"min_qty": "1", "price": "1"}]}
         self.assertEqual(len(merge_condition_fragments([a, b, frag])), 3)
+
+
+class ErpJobOrder(unittest.TestCase):
+    def test_prices_are_queued_with_the_record_not_after_every_record(self):
+        import asyncio
+        from unittest import mock
+        from agents import scrape_erp
+
+        async def run():
+            scraper = scrape_erp.ErpScraper.__new__(scrape_erp.ErpScraper)
+            scraper.queue, scraper.pending, scraper.seen = asyncio.PriorityQueue(), 0, set()
+            scraper._order, scraper.log = __import__("itertools").count(), mock.Mock()
+            scraper.browse_until_done = mock.AsyncMock(return_value={"records": []})
+            scraper.extract_job = mock.AsyncMock(return_value={})
+            with mock.patch.object(scrape_erp, "search_candidates", return_value=["M-1", "M-2"]):
+                await scraper.do(("search", {"group": "G", "requirements": []}), None)
+            order = []
+            while not scraper.queue.empty():
+                order.append(scraper.queue.get_nowait()[2][:2])
+            return order
+
+        order = asyncio.run(run())
+        self.assertEqual(order[:4], [("record", "M-1"), ("prices", "M-1"), ("record", "M-2"), ("prices", "M-2")])
+        self.assertEqual(sorted(order[4:]), [("stock", "M-1"), ("stock", "M-2")])
