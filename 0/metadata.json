@@ -1,0 +1,405 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4KMGSF7SKVS8SF2R2TBW3RF",
+  "session_id": "4937e24d-568e-48c0-990a-24da76135a1d",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-10T19:27:01.8504923Z",
+  "branch": "tender_portal",
+  "checkpoints_count": 30,
+  "save_step_count": 27,
+  "files_touched": [
+    "CLAUDE.md",
+    "agents/analyze_discount.py",
+    "agents/analyze_materials.py",
+    "agents/analyze_quantities.py",
+    "agents/analyze_requirements.py",
+    "agents/coordinate.py",
+    "agents/read_brief.py",
+    "agents/scrape_erp.py",
+    "agents/scrape_mail.py",
+    "agents/scrape_spec.py",
+    "agents/scrape_tender.py",
+    "agents/submit_bid.py",
+    "docs/SWARM.md",
+    "scripts/pull-run.ps1",
+    "scripts/test-run.ps1",
+    "swarm/browser_agent.py",
+    "swarm/context.py",
+    "swarm/extract.py",
+    "swarm/forms.py",
+    "swarm/guard.py",
+    "swarm/orchestrator.py",
+    "swarm/page_text.py",
+    "swarm/scraper.py",
+    "tests/test_rules.py",
+    "tests/test_swarm.py"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "turn_id": "2a3cedc73288",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 826,
+    "cache_creation_tokens": 813606,
+    "cache_read_tokens": 120026022,
+    "output_tokens": 364803,
+    "api_call_count": 394
+  },
+  "skill_events_version": 1,
+  "skill_events": [
+    {
+      "id": "claude-skill-toolu_01TUYRr6j2c9L26YG3Xv2dFX",
+      "event_type": "tool_invocation",
+      "skill": {
+        "name": "caveman"
+      },
+      "source": {
+        "agent": "claude-code",
+        "signal": "skill_tool_use",
+        "confidence": "explicit"
+      },
+      "turn_id": "2a3cedc73288",
+      "transcript_anchor": {
+        "unit": "line",
+        "start": 101,
+        "end": 102,
+        "entry_ids": [
+          "d2710428-b207-4429-8ab9-fedfa9331226"
+        ],
+        "tool_use_id": "toolu_01TUYRr6j2c9L26YG3Xv2dFX"
+      },
+      "native": {
+        "tool_name": "Skill",
+        "tool_use_id": "toolu_01TUYRr6j2c9L26YG3Xv2dFX"
+      },
+      "collapse": {
+        "target": "tool_pair",
+        "label": "Skill: caveman",
+        "default_collapsed": true
+      }
+    }
+  ],
+  "session_metrics": {
+    "turn_count": 30
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-10T19:27:01.328557Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 2883,
+    "human_modified": 2771,
+    "human_removed": 0,
+    "total_committed": 2883,
+    "total_lines_changed": 5654,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 595,
+      "agent_lines_removed": 386
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 595,
+      "agent_lines_removed": 386
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 595,
+      "agent_lines_removed": 386
+    },
+    {
+      "checkpoint_number": 5,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 595,
+      "agent_lines_removed": 386
+    },
+    {
+      "checkpoint_number": 6,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 595,
+      "agent_lines_removed": 386
+    },
+    {
+      "checkpoint_number": 7,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 655,
+      "agent_lines_removed": 391
+    },
+    {
+      "checkpoint_number": 8,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 717,
+      "agent_lines_removed": 391
+    },
+    {
+      "checkpoint_number": 9,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 717,
+      "agent_lines_removed": 391
+    },
+    {
+      "checkpoint_number": 10,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 718,
+      "agent_lines_removed": 391
+    },
+    {
+      "checkpoint_number": 11,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 778,
+      "agent_lines_removed": 391
+    },
+    {
+      "checkpoint_number": 12,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 778,
+      "agent_lines_removed": 391
+    },
+    {
+      "checkpoint_number": 13,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 778,
+      "agent_lines_removed": 391
+    },
+    {
+      "checkpoint_number": 14,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 778,
+      "agent_lines_removed": 391
+    },
+    {
+      "checkpoint_number": 15,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 778,
+      "agent_lines_removed": 391
+    },
+    {
+      "checkpoint_number": 16,
+      "user_lines_added": 255,
+      "user_lines_removed": 0,
+      "agent_lines_added": 778,
+      "agent_lines_removed": 391,
+      "user_added_per_file": {
+        "swarm/guard.py": 255
+      }
+    },
+    {
+      "checkpoint_number": 17,
+      "user_lines_added": 255,
+      "user_lines_removed": 0,
+      "agent_lines_added": 2163,
+      "agent_lines_removed": 939,
+      "user_added_per_file": {
+        "swarm/guard.py": 255
+      }
+    },
+    {
+      "checkpoint_number": 18,
+      "user_lines_added": 255,
+      "user_lines_removed": 0,
+      "agent_lines_added": 2163,
+      "agent_lines_removed": 939,
+      "user_added_per_file": {
+        "swarm/guard.py": 255
+      }
+    },
+    {
+      "checkpoint_number": 19,
+      "user_lines_added": 255,
+      "user_lines_removed": 0,
+      "agent_lines_added": 2449,
+      "agent_lines_removed": 1152,
+      "user_added_per_file": {
+        "swarm/guard.py": 255
+      }
+    },
+    {
+      "checkpoint_number": 20,
+      "user_lines_added": 708,
+      "user_lines_removed": 196,
+      "agent_lines_added": 2449,
+      "agent_lines_removed": 1152,
+      "user_added_per_file": {
+        "CLAUDE.md": 3,
+        "agents/analyze_materials.py": 32,
+        "agents/scrape_tender.py": 2,
+        "docs/SWARM.md": 169,
+        "scripts/local-run.ps1": 33,
+        "scripts/pull-run.ps1": 15,
+        "swarm/browser_agent.py": 51,
+        "swarm/context.py": 1,
+        "swarm/forms.py": 48,
+        "swarm/guard.py": 314,
+        "swarm/orchestrator.py": 11,
+        "swarm/page_text.py": 4,
+        "swarm/scraper.py": 5,
+        "tests/test_swarm.py": 20
+      },
+      "user_removed_per_file": {
+        "agents/analyze_materials.py": 14,
+        "agents/scrape_tender.py": 1,
+        "docs/SWARM.md": 162,
+        "scripts/pull-run.ps1": 4,
+        "swarm/browser_agent.py": 7,
+        "swarm/context.py": 1,
+        "swarm/forms.py": 1,
+        "swarm/orchestrator.py": 2,
+        "swarm/scraper.py": 1,
+        "tests/test_swarm.py": 3
+      }
+    },
+    {
+      "checkpoint_number": 21,
+      "user_lines_added": 362,
+      "user_lines_removed": 4,
+      "agent_lines_added": 2506,
+      "agent_lines_removed": 1048,
+      "user_added_per_file": {
+        "scripts/local-run.ps1": 33,
+        "scripts/pull-run.ps1": 15,
+        "swarm/guard.py": 314
+      },
+      "user_removed_per_file": {
+        "scripts/pull-run.ps1": 4
+      }
+    },
+    {
+      "checkpoint_number": 22,
+      "user_lines_added": 362,
+      "user_lines_removed": 4,
+      "agent_lines_added": 2506,
+      "agent_lines_removed": 1048,
+      "user_added_per_file": {
+        "scripts/local-run.ps1": 33,
+        "scripts/pull-run.ps1": 15,
+        "swarm/guard.py": 314
+      },
+      "user_removed_per_file": {
+        "scripts/pull-run.ps1": 4
+      }
+    },
+    {
+      "checkpoint_number": 23,
+      "user_lines_added": 362,
+      "user_lines_removed": 4,
+      "agent_lines_added": 2506,
+      "agent_lines_removed": 1048,
+      "user_added_per_file": {
+        "scripts/local-run.ps1": 33,
+        "scripts/pull-run.ps1": 15,
+        "swarm/guard.py": 314
+      },
+      "user_removed_per_file": {
+        "scripts/pull-run.ps1": 4
+      }
+    },
+    {
+      "checkpoint_number": 24,
+      "user_lines_added": 403,
+      "user_lines_removed": 328,
+      "agent_lines_added": 2834,
+      "agent_lines_removed": 1048,
+      "user_added_per_file": {
+        "scripts/local-run.ps1": 33,
+        "scripts/pull-run.ps1": 15,
+        "swarm/browser_agent.py": 28,
+        "swarm/guard.py": 327
+      },
+      "user_removed_per_file": {
+        "scripts/pull-run.ps1": 4,
+        "swarm/guard.py": 324
+      }
+    },
+    {
+      "checkpoint_number": 25,
+      "user_lines_added": 375,
+      "user_lines_removed": 328,
+      "agent_lines_added": 2862,
+      "agent_lines_removed": 1048,
+      "user_added_per_file": {
+        "scripts/local-run.ps1": 33,
+        "scripts/pull-run.ps1": 15,
+        "swarm/guard.py": 327
+      },
+      "user_removed_per_file": {
+        "scripts/pull-run.ps1": 4,
+        "swarm/guard.py": 324
+      }
+    },
+    {
+      "checkpoint_number": 26,
+      "user_lines_added": 375,
+      "user_lines_removed": 328,
+      "agent_lines_added": 2862,
+      "agent_lines_removed": 1048,
+      "user_added_per_file": {
+        "scripts/local-run.ps1": 33,
+        "scripts/pull-run.ps1": 15,
+        "swarm/guard.py": 327
+      },
+      "user_removed_per_file": {
+        "scripts/pull-run.ps1": 4,
+        "swarm/guard.py": 324
+      }
+    },
+    {
+      "checkpoint_number": 27,
+      "user_lines_added": 375,
+      "user_lines_removed": 328,
+      "agent_lines_added": 2862,
+      "agent_lines_removed": 1048,
+      "user_added_per_file": {
+        "scripts/local-run.ps1": 33,
+        "scripts/pull-run.ps1": 15,
+        "swarm/guard.py": 327
+      },
+      "user_removed_per_file": {
+        "scripts/pull-run.ps1": 4,
+        "swarm/guard.py": 324
+      }
+    },
+    {
+      "checkpoint_number": 28,
+      "user_lines_added": 375,
+      "user_lines_removed": 328,
+      "agent_lines_added": 2862,
+      "agent_lines_removed": 1048,
+      "user_added_per_file": {
+        "scripts/local-run.ps1": 33,
+        "scripts/pull-run.ps1": 15,
+        "swarm/guard.py": 327
+      },
+      "user_removed_per_file": {
+        "scripts/pull-run.ps1": 4,
+        "swarm/guard.py": 324
+      }
+    }
+  ]
+}
