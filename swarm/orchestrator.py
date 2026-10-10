@@ -6,10 +6,12 @@ Local dev: SWARM_ONLY=a,b runs only those agents; SWARM_BOARD_IN=.swarm/board.js
 in scored runs). The board is dumped to .swarm/board.json after every phase.
 """
 import asyncio
+import faulthandler
 import importlib
 import logging
 import os
 import pkgutil
+import sys
 from pathlib import Path
 
 import agents as agents_pkg
@@ -86,6 +88,19 @@ def board_summary(board: Blackboard) -> dict:
             "tips": sum(len(v) for v in (r.get("tips") or {}).values()), "errors": len(board.errors)}
 
 
+STALL_S = 45     # the event loop blocked this long: every thread's stack goes to stderr (diagnosis of frozen runs)
+
+
+async def _heartbeat() -> None:
+    """Re-arm the stall dump while the event loop runs; if one synchronous call blocks the loop, the dump fires."""
+    try:
+        while True:
+            faulthandler.dump_traceback_later(STALL_S, repeat=True, file=sys.stderr)
+            await asyncio.sleep(STALL_S / 3)
+    finally:
+        faulthandler.cancel_dump_traceback_later()
+
+
 async def run_swarm(task: dict, playwright, scored: bool, env=os.environ):
     board = Blackboard()
     preload = env.get("SWARM_BOARD_IN")
@@ -101,6 +116,7 @@ async def run_swarm(task: dict, playwright, scored: bool, env=os.environ):
     guard._DECISIONS.clear()
     guard._PENDING.clear()
     log.info("agents: %s", [c.__name__ for c in classes])
+    heartbeat = asyncio.create_task(_heartbeat())
     try:
         await ctx.pool.prepare()
         for phase in Phase:
@@ -139,6 +155,7 @@ async def run_swarm(task: dict, playwright, scored: bool, env=os.environ):
             raise RuntimeError("No schema-valid API answer was produced")
         return answer
     finally:
+        heartbeat.cancel()
         pending = list(guard._TASKS)
         for t in pending:
             t.cancel()
