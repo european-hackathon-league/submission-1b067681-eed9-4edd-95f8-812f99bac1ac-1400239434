@@ -295,6 +295,41 @@ class MailTopics(unittest.TestCase):
         self.assertIn("Verpackung", jobs[0])
         self.assertIn("Devisen", jobs[1])
 
+    def test_discount_first_and_delivery_last_with_its_identifiers(self):
+        from types import SimpleNamespace as NS
+        from agents.scrape_mail import MailScraper
+        scraper = MailScraper(NS(board=None))
+        facts = {"director_sender": "boss@", "authorized_senders": {"delivery_commitments": "dispo",
+                                                                   "price_indices": "einkauf"}}
+        topics, senders, words = scraper.topics(facts)
+        self.assertEqual(topics, ["discount_approval", "price_indices", "delivery_commitments"])
+        job = scraper.topic_job("delivery_commitments", words, senders, ["D-1"], ["M-9"])
+        self.assertIn("D-1", job)
+        self.assertIn("M-9", job)
+
+    def test_delivery_counts_as_covered_only_when_every_key_has_its_mail(self):
+        from types import SimpleNamespace as NS
+        from agents.scrape_mail import MailScraper
+        board = {"tender": {"positions": [{"position": "1"}, {"position": "2"}],
+                            "clarifications": [{"number": "1", "positions": ["1"], "keys": {"delivery_key": "D-1"}},
+                                               {"number": "2", "positions": ["2"], "keys": {"delivery_key": "D-2"}}]},
+                 "mail": {"delivery_commitments": {"D-1": {}}}}
+        scraper = MailScraper(NS(board=NS(get=board.get)))
+        valid = [{"topic": "delivery_commitments"}]
+        self.assertNotIn("delivery_commitments", scraper.covered(valid))
+        board["mail"]["delivery_commitments"]["D-2"] = {}
+        self.assertIn("delivery_commitments", scraper.covered(valid))
+
+
+class CoordinatorFallback(unittest.TestCase):
+    def test_direct_jobs_group_three_gaps_per_job_and_role(self):
+        from agents.coordinate import direct_jobs
+        gaps = [{"id": f"g{i}", "role": "mail" if i < 4 else "erp", "need": f"need {i}"} for i in range(5)]
+        jobs = direct_jobs(gaps)
+        self.assertEqual([(j["role"], j["gaps"]) for j in jobs],
+                         [("mail", ["g0", "g1", "g2"]), ("mail", ["g3"]), ("erp", ["g4"])])
+        self.assertIn("need 0", jobs[0]["job"])
+
 
 class RealAgentsImport(unittest.TestCase):
     def test_every_agent_module_imports_and_registers(self):

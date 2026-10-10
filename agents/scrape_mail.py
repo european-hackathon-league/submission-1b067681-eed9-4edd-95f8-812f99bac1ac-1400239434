@@ -3,20 +3,25 @@
 
 Every message is read once:
 1. The main tab logs in while the brief is being read.
-2. Index pass (main tab): one search for the exact tender reference alone, in inbox and archive; the model picks the
-   messages about this tender from the result lists and reads them all with read_page(urls=[...]). Then
-   results["done.mail_core"] (the discount analyst starts).
-3. The analyst's extraction says which topics the brief names (authorised senders: discount approval, condition
-   rules, technical release, packaging, ...) have no valid message yet. Only those get a topic search, in parallel
-   tabs (each logs in: this webmail keeps its login per tab). Messages already saved by another agent are not opened
-   again (read_page returns the saved text). Then results["done.mail"].
+2. Topic searches start at once, in parallel lanes (main tab + SWARM_MAIL_TABS tabs; each tab logs in: this webmail
+   keeps its login per tab): one search per topic the brief names ('<reference> <topic word>'), discount approval
+   first. A search for the exact reference alone lists every message and needs many result pages, so it only runs
+   last, as a catch-all for what the topic searches missed. Before each job, topics that already have a valid message
+   are skipped; delivery commitments only count as covered when every delivery key of the Q&A has its mail, and their
+   job names the delivery keys and material numbers known by then (a webmail may find them only by article number).
+   results["done.mail_core"] is set after the discount search (the discount analyst starts).
+3. Messages already saved by another agent are not opened again (read_page returns the saved text). Then
+   results["done.mail"].
 The signing TAN is NOT read here: the submitter asks for it when it signs (agents/submit_bid.py)."""
 import os
 import asyncio
 
-from agents.analyze_discount import covered_topics, refresh
+from agents.analyze_discount import covered_topics, publish
+from agents.compute_bid import position_keys
 from swarm.context import SUBMIT_RESERVE_S
 from swarm import Phase, register  # noqa: F401
+from swarm.browser_agent import Tab
+from swarm.normalize import norm_ref
 from swarm.scraper import SiteScraper
 from swarm.sites import site_for
 
@@ -30,13 +35,23 @@ SEARCH_RULES = (
     "page link. Skip signing-TAN mails.")
 
 INDEX_JOB = (
-    "Search the exact tender reference ALONE (no other word), first inbox then archive. read_page each result "
-    "page with topic 'mail index'. On EACH result page, immediately read the matching message links before "
-    "moving to another index page or folder; do not spend the entire budget collecting indexes. Prioritize "
-    "discount approval and technical release messages from the authorized senders, then other commercial terms. "
-    "Use read_page(urls=[observed message links], topic='mail messages'), up to 12 URLs. Return to the observed "
-    "index URL to continue pagination. Read all messages for the exact reference, excluding look-alike suffixes, "
-    "other tenders and signing TANs. Then done, listing subjects read.\n" + SEARCH_RULES)
+    "Catch-all: search the exact tender reference ALONE (no other word), first inbox then archive. read_page each "
+    "result page with topic 'mail index'. On EACH result page, immediately read the matching message links not read "
+    "yet before moving to another index page or folder. Still missing: {missing}. Use read_page(urls=[observed message "
+    "links], topic='mail messages'), up to 12 URLs. Return to the observed index URL to continue pagination. Skip "
+    "look-alike suffixes, other tenders and signing TANs. Then done, listing subjects read.\n" + SEARCH_RULES)
+
+DELIVERY = "delivery_commitments"
+
+
+def delivery_ids(board) -> tuple[list[str], list[str]]:
+    """Delivery keys the latest Q&A assigns to the positions, and the material numbers matched so far."""
+    tender = board.get("tender") or {}
+    clarifications = tender.get("clarifications") or []
+    keys = [position_keys(clarifications, str(p.get("position")).strip())["keys"].get("delivery_key")
+            for p in tender.get("positions") or []]
+    materials = [m.get("material") for m in (board.get("materials") or {}).values() if isinstance(m, dict)]
+    return list(dict.fromkeys(k for k in keys if k)), list(dict.fromkeys(m for m in materials if m))
 
 
 @register
@@ -61,44 +76,84 @@ class MailScraper(SiteScraper):
         except Exception as error:
             self.log.warning("login browse failed: %s", error)
 
-    def topic_jobs(self, facts: dict, covered: set[str]) -> list[str]:
-        """One search job per brief topic that has no valid message yet (discount approval first)."""
+    def topics(self, facts: dict) -> tuple[list[str], dict, dict]:
+        """The topics the brief names (discount approval first), their search words and authorised senders."""
         senders = dict(facts.get("authorized_senders") or {})
         senders.setdefault("discount_approval", facts.get("director_sender") or "")
         words = dict(facts.get("topic_words") or {})
         words.setdefault("discount_approval", facts.get("discount_topic") or "Rabatt")
-        missing = [t for t in dict.fromkeys([*senders, *words]) if t not in covered and t != "signing_tan"]
-        missing.sort(key=lambda t: t != "discount_approval")
-        jobs = []
-        for topic in missing:
-            word = words.get(topic) or topic.replace("_", " ")
-            sender = senders.get(topic)
-            jobs.append(f"Find mails on topic '{word}' ({topic.replace('_', ' ')}) for this tender"
-                        f"{f' (sender {sender})' if sender else ''}: search '<reference> {word}' in inbox and "
-                        f"archive; read every matching message.\n{SEARCH_RULES}\nThen done.")
-        return jobs
+        topics = [t for t in dict.fromkeys([*senders, *words]) if t != "signing_tan"]
+        topics.sort(key=lambda t: (t != "discount_approval", t == DELIVERY))
+        return topics, senders, words
+
+    def topic_job(self, topic: str, words: dict, senders: dict, keys=(), materials=()) -> str:
+        word = words.get(topic) or topic.replace("_", " ")
+        sender = senders.get(topic)
+        job = (f"Find mails on topic '{word}' ({topic.replace('_', ' ')}) for this tender"
+               f"{f' (sender {sender})' if sender else ''}: search '<reference> {word}' in inbox and archive; read "
+               f"every matching message.")
+        if topic == DELIVERY and (keys or materials):
+            job += (f" Commitments are per delivery key / article: keys {list(keys)}, material numbers "
+                    f"{list(materials)}. If the search hint or the results ask for another identifier, or a key has "
+                    f"no hit, search '<reference> <material number>' (or the key) for each one still missing.")
+        return f"{job}\n{SEARCH_RULES}\nThen done."
+
+    def covered(self, valid: list[dict]) -> set[str]:
+        """Topics with a valid message; delivery commitments only when every Q&A delivery key has its mail."""
+        covered = covered_topics(valid)
+        keys, _ = delivery_ids(self.ctx.board)
+        found = {norm_ref(k) for k in ((self.ctx.board.get("mail") or {}).get(DELIVERY) or {})}
+        if keys and any(norm_ref(k) not in found for k in keys):
+            covered.discard(DELIVERY)
+        return covered
+
+    def topic_jobs(self, facts: dict, covered: set[str]) -> list[str]:
+        """One search job per brief topic that has no valid message yet (discount approval first)."""
+        topics, senders, words = self.topics(facts)
+        return [self.topic_job(t, words, senders) for t in topics if t not in covered]
+
+    async def lane(self, topics: list[str], facts: dict, tab=None, first=None) -> None:
+        """Search `topics` one after another in one tab, skipping those covered by then."""
+        _, senders, words = self.topics(facts)
+        for topic in topics:
+            if self.ctx.time_left() <= 60:
+                return
+            if topic not in self.covered(await publish(self.ctx)):
+                keys, materials = delivery_ids(self.ctx.board) if topic == DELIVERY else ((), ())
+                await self.browse_until_done(self.topic_job(topic, words, senders, keys, materials), attempts=1,
+                                             max_steps=12, tab=tab)
+            if first and topic == topics[0]:
+                await first()
 
     async def run(self) -> None:
         try:
             self.site_id = self.site_id or await site_for(self.ctx, self.role)
             facts, _ = await asyncio.gather(self.wait_brief(), self.login())
             facts = self.ctx.board.get("brief") or facts
-            out = await self.browse_until_done(INDEX_JOB, attempts=2)
-            await self.ctx.board.set(f"{self.name}.summary", out["summary"])
-            await self.ctx.board.set("done.mail_core", True)
-            from agents.analyze_discount import publish
-            valid = await publish(self.ctx)
-            jobs = self.topic_jobs(facts, covered_topics(valid))
-            if jobs and self.ctx.time_left() > 120:
-                self.log.info("topics without a valid message: %d searches", len(jobs))
-                groups = [jobs[i::TOPIC_TABS] for i in range(min(TOPIC_TABS, len(jobs)))]
-                main, rest = groups[0], groups[1:]
+            topics, _, _ = self.topics(facts)
+            lanes = [topics[i::TOPIC_TABS + 1] for i in range(min(TOPIC_TABS + 1, len(topics)))]
+            self.log.info("mail topic lanes: %s", lanes)
 
-                async def in_main() -> None:
-                    for job in main:
-                        await self.browse_until_done(job, attempts=1, max_steps=16)
-                await asyncio.gather(in_main(), self.browse_in_tabs(["\n\n".join(g) for g in rest], attempts=1,
-                                                                    max_steps=22))
+            async def core_done() -> None:
+                await self.ctx.board.set("done.mail_core", True)
+
+            async def in_tab(group: list[str]) -> None:
+                tab = Tab(self.browser)
+                try:
+                    await self.lane(group, facts, tab=tab)
+                except Exception as error:
+                    self.ctx.board.error(self.name, f"mail tab lane failed: {error}")
+                finally:
+                    await tab.close()
+
+            await asyncio.gather(self.lane(lanes[0] if lanes else [], facts, first=core_done),
+                                 *(in_tab(g) for g in lanes[1:]))
+            await self.ctx.board.set("done.mail_core", True)
+            missing = [t for t in topics if t not in self.covered(await publish(self.ctx))]
+            if missing and self.ctx.time_left() > 120:
+                self.log.info("topics without a valid message after the searches: %s", missing)
+                out = await self.browse_until_done(INDEX_JOB.format(missing=missing), attempts=1, max_steps=16)
+                await self.ctx.board.set(f"{self.name}.summary", out["summary"])
         finally:
             await self.ctx.board.set("done.mail_core", True)
             await self.ctx.board.set("done.mail", True)
