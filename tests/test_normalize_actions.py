@@ -19,5 +19,15 @@ class NormalizeActions(unittest.TestCase):
         self.assertEqual(normalize_actions("not json"), "not json")
 
 
+    def test_a_plain_value_next_to_an_action_is_its_parameter(self):
+        text = json.dumps({"action": [{"record": {"kind": "k", "data": {}}, "source": "https://x/1"}]})
+        self.assertEqual(json.loads(normalize_actions(text))["action"],
+                         [{"record": {"source": "https://x/1", "kind": "k", "data": {}}}])
+
+    def test_a_wrapped_action_is_unwrapped(self):
+        text = json.dumps({"action": [{"click": {"index": 1}}, {"action": {"done": {"text": "t"}}}]})
+        self.assertEqual(json.loads(normalize_actions(text))["action"], [{"click": {"index": 1}}, {"done": {"text": "t"}}])
+
+
 if __name__ == "__main__":
     unittest.main()

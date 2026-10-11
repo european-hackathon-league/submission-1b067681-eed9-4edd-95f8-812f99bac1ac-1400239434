@@ -321,10 +321,22 @@ def normalize_actions(text: str) -> str:
         return text
     out, changed = [], not isinstance(data["action"], list)
     for action in actions:
+        if isinstance(action, dict) and set(action) == {"action"} and isinstance(action["action"], (dict, list)):
+            inner = action["action"]                # {"action": {"done": ...}}: one wrapper too many
+            action, changed = (inner if isinstance(inner, dict) else (inner[0] if inner else {})), True
         if isinstance(action, dict) and len(action) > 1:
-            parts = [{k: v} for k, v in action.items() if k != "done"]
-            if "done" in action:
-                parts.append({"done": action["done"]})
+            # only dict values are actions; a plain value next to them is a parameter of the first action
+            # (sandbox: {"record": {...}, "source": "url"} split into a lone "source" action failed again)
+            named = {k: v for k, v in action.items() if isinstance(v, dict)}
+            loose = {k: v for k, v in action.items() if not isinstance(v, dict)}
+            if not named:
+                out.append(action)
+                continue
+            first = next(iter(named))
+            named[first] = {**loose, **named[first]}
+            parts = [{k: v} for k, v in named.items() if k != "done"]
+            if "done" in named:
+                parts.append({"done": named["done"]})
             out.extend(parts)
             changed = True
         else:
