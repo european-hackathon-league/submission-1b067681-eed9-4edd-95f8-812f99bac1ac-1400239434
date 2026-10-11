@@ -1,0 +1,30 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4MRS709X1HJW1Y16QK75G24",
+  "strategy": "manual-commit",
+  "branch": "first_100",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "agents/scrape_erp.py",
+    "swarm/lean.py",
+    "swarm/orchestrator.py",
+    "swarm/scheduler.py",
+    "tests/test_scheduler.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 62,
+    "cache_creation_tokens": 64238,
+    "cache_read_tokens": 13410142,
+    "output_tokens": 22326,
+    "api_call_count": 31
+  }
+}

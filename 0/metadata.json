@@ -1,0 +1,60 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4MRS709X1HJW1Y16QK75G24",
+  "session_id": "9e908d4e-6467-4171-9a86-c9ecd5f7e1e3",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-11T06:00:47.0086666Z",
+  "branch": "first_100",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "agents/scrape_erp.py",
+    "swarm/lean.py",
+    "swarm/orchestrator.py",
+    "swarm/scheduler.py",
+    "tests/test_scheduler.py"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "turn_id": "ddb76c484888",
+  "checkpoint_transcript_start": 1362,
+  "transcript_lines_at_start": 1362,
+  "compact_transcript_start": 222,
+  "token_usage": {
+    "input_tokens": 62,
+    "cache_creation_tokens": 64238,
+    "cache_read_tokens": 13410142,
+    "output_tokens": 22326,
+    "api_call_count": 31
+  },
+  "session_metrics": {
+    "turn_count": 12
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-11T06:00:46.8901436Z",
+    "agent_lines": 838,
+    "agent_removed": 66,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 838,
+    "total_lines_changed": 904,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 141,
+      "user_lines_removed": 46,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/IMPROVEMENT_PLAN.md": 95,
+        "docs/INTEGRATION.md": 46
+      },
+      "user_removed_per_file": {
+        "docs/INTEGRATION.md": 46
+      }
+    }
+  ]
+}
