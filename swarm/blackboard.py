@@ -56,8 +56,12 @@ class Blackboard:
             if kind is not None and self.query(kind):
                 return self.query(kind)
             return None
-        async with self._changed:
-            await asyncio.wait_for(self._changed.wait_for(lambda: ready() is not None), timeout)
+        if ready() is not None:
+            return ready()
+        from swarm import timeline
+        with timeline.span("wait.dep", key or kind or ""):
+            async with self._changed:
+                await asyncio.wait_for(self._changed.wait_for(lambda: ready() is not None), timeout)
         return ready()
 
     def error(self, agent: str, message: str) -> None:

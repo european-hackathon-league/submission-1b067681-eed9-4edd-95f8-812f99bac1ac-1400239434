@@ -19,9 +19,8 @@ import asyncio
 import json
 
 from agents import analyze_discount, analyze_materials, analyze_quantities, analyze_requirements
-from agents.compute_bid import position_keys, valid_condition
-from swarm import Agent, Phase, register
-from swarm.context import SUBMIT_RESERVE_S
+from agents.compute_bid import INPUTS, compute, position_keys, valid_condition
+from swarm import Agent, Phase, register, timeline
 from swarm.extract import pages
 from swarm.normalize import norm_ref, to_datetime
 from swarm.scraper import run_job
@@ -30,9 +29,12 @@ ROUND_MIN_S = 100        # a follow-up job needs at least this much collect time
 JOB_STEPS = 16
 MAX_JOBS = 6             # per planning call
 MAX_JOBS_PER_ROLE = 3
+MAX_RUNNING_PER_ROLE = 2  # follow-up browses at once on one site (each is a tab of that site's browser)
 ANALYSIS_S = 60          # jobs stop this long before collect ends, so the analyses can still run on their pages
 SETTLE_S = 45           # a site whose analysis has not finished this long after its first pass is treated as done
 PLAN_S = 60             # a planning call longer than this is dropped: the gaps become jobs as they are
+MAIL_EARLY_S = 30        # mail gaps may start this long after the mail index pass was analysed (topic searches go on)
+REPLAN_S = 45            # an unchanged set of open gaps is offered to the planner again only after this long
 
 READY = {"tender": ("done.tender", "tender_final"), "spec": ("done.spec", "requirements_final"),
          "erp": ("done.erp", "materials"), "mail": ("done.mail", "mail_final")}
@@ -144,29 +146,40 @@ def find_gaps(board, ready: set[str], saved_topics: dict[str, list[str]]) -> lis
         if position_keys(clarifications, pos)["keys"].get("packaging_tariff") and not info.get("pieces_per_carton"):
             missing.append("pieces per carton")
         if missing:
-            gap("erp", f"erp record {mat}", f"record of material {mat} (all tabs, status legend): "
-                                            f"{', '.join(dict.fromkeys(missing))} not read")
+            gap("erp", f"erp record {norm_ref(mat)}", f"record of material {mat} (all tabs, status legend): "
+                                                      f"{', '.join(dict.fromkeys(missing))} not read")
         conds = [c for c in erp.get("conditions") or [] if norm_ref(c.get("material")) == norm_ref(mat)]
         cond = valid_condition(conds, mat, scenario)
         if not conds:
-            gap("erp", f"erp prices {mat}", f"price condition records of material {mat} with quantity scales")
+            gap("erp", f"erp prices {norm_ref(mat)}", f"price condition records of material {mat} with quantity scales")
         elif cond is None:
-            gap("erp", f"erp prices {mat}", f"price condition of material {mat} valid on {brief.get('scenario_date')} "
-                                            f"(read: {[(c.get('valid_from'), c.get('valid_to')) for c in conds]}; "
-                                            "other condition records/periods)")
+            gap("erp", f"erp prices {norm_ref(mat)}", f"price condition of material {mat} valid on "
+                                                      f"{brief.get('scenario_date')} (read: "
+                                                      f"{[(c.get('valid_from'), c.get('valid_to')) for c in conds]}; "
+                                                      "other condition records/periods)")
         elif not cond.get("scales"):
-            gap("erp", f"erp prices {mat}", f"quantity scales of the valid price condition of {mat} (open the "
-                                            "quantity-scale register)")
+            gap("erp", f"erp prices {norm_ref(mat)}", f"quantity scales of the valid price condition of {mat} (open "
+                                                      "the quantity-scale register)")
         elif norm_ref(cond.get("currency") or "EUR") != "EUR" and \
                 norm_ref(cond.get("currency")) not in {norm_ref(k) for k in (mail.get("fx_fixing") or {})}:
             gap("mail", f"mail fx {norm_ref(cond.get('currency'))}", f"FX fixing mail for {cond.get('currency')} "
                                                                      f"(key {cond.get('fx_key')})")
         if norm_ref(mat) not in {norm_ref(k) for k in (erp.get("stock") or {})}:
-            gap("erp", f"erp stock {mat}", f"stock of material {mat} at storage-location level")
+            gap("erp", f"erp stock {norm_ref(mat)}", f"stock of material {mat} at storage-location level")
         index = info.get("metal_index")
         if index and norm_ref(index) not in {norm_ref(k) for k in (mail.get("price_indices") or {})}:
             gap("mail", f"mail price index {norm_ref(index)}", f"metal price index mail for {index} valid on "
                                                                f"{brief.get('scenario_date')}")
+    # What the calculation itself still misses (a condition without price unit, a pool fee, a carton size, ...):
+    # checks above establish that a topic exists; these establish that the value the bid needs is usable.
+    for dep in dependency_gaps(board):
+        if dep["role"] not in ready:
+            continue
+        have = gaps.get(dep["id"])
+        if have is None:
+            gaps[dep["id"]] = {"id": dep["id"], "role": dep["role"], "need": dep["need"]}
+        elif dep["need"] not in have["need"]:
+            have["need"] += f"; calculation needs: {dep['need']}"
     return list(gaps.values())
 
 
@@ -182,6 +195,18 @@ def direct_jobs(gaps: list[dict]) -> list[dict]:
                          "job": "Find and read_page (topic naming the identifier): " +
                                 "; ".join(g["need"] for g in chunk) + ". Then done."})
     return jobs[:MAX_JOBS]
+
+
+def dependency_gaps(board) -> list[dict]:
+    """The bid calculation's open dependencies on the sites (not the ones on other positions), with the positions
+    each one blocks. Material matching is left to find_gaps' search/record gaps (more specific)."""
+    try:
+        bid = compute({n: board.get(n) for n in INPUTS})
+    except Exception:  # noqa: BLE001 - a half-collected board: the gaps above still apply
+        return []
+    return [{"id": d["id"], "role": d["role"], "need": f"{d['need']} (positions {', '.join(d['positions'])})"}
+            for d in (bid.get("dependencies") or {}).values()
+            if d["role"] in READY and d.get("kind") != "material"]
 
 
 async def refresh(ctx, roles: set[str]) -> None:
@@ -213,10 +238,20 @@ class CollectionCoordinator(Agent):
         self.running: dict[asyncio.Task, str] = {}      # follow-up job -> its site role
         self.history: list[dict] = []
         self.first_pass_end: dict[str, float] = {}
+        self.mail_core_at: float | None = None
+        self.last_offer: frozenset = frozenset()
+        self.last_plan_at = -1e9
 
     def ready(self) -> set[str]:
-        """Sites whose first pass and analysis are done (gaps can be judged)."""
-        return {role for role, keys in READY.items() if all(self.ctx.board.get(k) is not None for k in keys)}
+        """Sites whose first pass and analysis are done (gaps can be judged). The mail counts once its index pass
+        was analysed for MAIL_EARLY_S: key-specific gaps (a packaging tariff, a pool fee) need not wait for the
+        generic topic searches."""
+        out = {role for role, keys in READY.items() if all(self.ctx.board.get(k) is not None for k in keys)}
+        if self.ctx.board.get("done.mail_core") is not None and self.ctx.board.get("mail") is not None:
+            self.mail_core_at = self.mail_core_at if self.mail_core_at is not None else self.ctx.elapsed()
+            if self.ctx.elapsed() - self.mail_core_at >= MAIL_EARLY_S:
+                out.add("mail")
+        return out
 
     def settled(self) -> set[str]:
         """Ready sites, plus sites whose analysis has not finished SETTLE_S after the first pass (it failed)."""
@@ -272,9 +307,9 @@ class CollectionCoordinator(Agent):
         return jobs
 
     async def work(self, job: dict) -> None:
-        reserve = SUBMIT_RESERVE_S + ANALYSIS_S
         try:
-            out = await run_job(self.ctx, job["role"], job["job"], max_steps=JOB_STEPS, stop_reserve=reserve)
+            with timeline.span("followup", f"{job['role']} {','.join(job['gaps'])[:60]}"):
+                out = await run_job(self.ctx, job["role"], job["job"], max_steps=JOB_STEPS, stop_extra=ANALYSIS_S)
             self.history.append({"role": job["role"], "gaps": job["gaps"], "done": out.get("done"),
                                  "summary": str(out.get("summary"))[:300]})
             self.log.info("follow-up %s %s done=%s: %s", job["role"], job["gaps"], out.get("done"),
@@ -292,9 +327,14 @@ class CollectionCoordinator(Agent):
                 ready = self.settled()
                 if self.ctx.time_left() > ROUND_MIN_S:
                     gaps = [g for g in find_gaps(self.ctx.board, ready, self.saved_topics()) if g["id"] not in self.tried and self.attempts.get(g["id"], 0) < 2]
-                    busy = set(self.running.values())
-                    gaps = [g for g in gaps if g["role"] not in busy]     # a site with follow-ups running: wait for them
+                    # a site with follow-ups running still takes new, different gaps while it has a free slot
+                    busy = {r: list(self.running.values()).count(r) for r in set(self.running.values())}
+                    gaps = [g for g in gaps if busy.get(g["role"], 0) < MAX_RUNNING_PER_ROLE]
+                    offer = frozenset(g["id"] for g in gaps)
+                    if gaps and offer == self.last_offer and self.ctx.elapsed() - self.last_plan_at < REPLAN_S:
+                        gaps = []                 # the same gaps were just planned (model skipped them): not again yet
                     if gaps:
+                        self.last_offer, self.last_plan_at = offer, self.ctx.elapsed()
                         self.log.info("gaps: %s", [g["id"] for g in gaps])
                         try:
                             jobs = await asyncio.wait_for(self.plan(gaps), PLAN_S)
@@ -303,6 +343,9 @@ class CollectionCoordinator(Agent):
                                              type(error).__name__)
                             jobs = direct_jobs(gaps)
                         for job in jobs:
+                            if busy.get(job["role"], 0) >= MAX_RUNNING_PER_ROLE:
+                                continue                  # its gaps stay open for the next round
+                            busy[job["role"]] = busy.get(job["role"], 0) + 1
                             for gid in job["gaps"]:
                                 self.attempts[gid] = self.attempts.get(gid, 0) + 1
                             self.tried.update(job["gaps"])

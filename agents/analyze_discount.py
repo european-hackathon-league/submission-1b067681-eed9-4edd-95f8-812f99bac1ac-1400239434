@@ -19,7 +19,7 @@ import logging
 from datetime import datetime
 
 from swarm import Agent, Phase, register
-from swarm.extract import extract, page_block, pages
+from swarm.extract import extract, page_block, pages, settle, start_once
 from swarm.normalize import validity_end, norm_ref, to_datetime, to_decimal
 
 EPOCH = to_datetime("1970-01-01T00:00:00Z")
@@ -132,28 +132,31 @@ def summarise(messages: list[dict], scenario: datetime | None) -> dict:
     return mail
 
 
-async def extract_new(ctx) -> dict:
-    """Extract the mail pages not extracted yet (one call per page, cached in ctx.shared); returns the cache."""
+async def extract_new(ctx, wait: bool = True) -> dict:
+    """Extract the mail pages not extracted yet (a task per page, cached in ctx.shared; a new page never waits for a
+    slow sibling); returns the cache. `wait=False` only starts the new extractions."""
     cache = ctx.shared.setdefault("mail.extracted", {})
-    async with ctx.lock("mail.extract"):
-        todo = [e for e in pages(ctx, "mail") if (e.data.get("url"), hash(e.data.get("text", ""))) not in cache]
-        async def one(e):
-            key = (e.data.get("url"), hash(e.data.get("text", "")))
-            try:
-                result = await extract(ctx, INSTRUCTION, SHAPE, [page_block(e)], list_key="messages")
-                if result.get("_incomplete"):
-                    return
-                cache[key] = result
-                await publish(ctx)  # each completed message survives cancellation of a slower sibling
-            except Exception as error:
-                ctx.board.error("DiscountAnalyzer", f"mail extraction: {type(error).__name__}")
-        await asyncio.gather(*(one(e) for e in todo))
+
+    async def one(e):
+        key = (e.data.get("url"), hash(e.data.get("text", "")))
+        try:
+            result = await extract(ctx, INSTRUCTION, SHAPE, [page_block(e)], list_key="messages")
+            if result.get("_incomplete"):
+                return
+            cache[key] = result
+            await publish(ctx)  # each completed message survives cancellation of a slower sibling
+        except Exception as error:
+            ctx.board.error("DiscountAnalyzer", f"mail extraction: {type(error).__name__}")
+    tasks = [start_once(ctx, "mail", key, lambda e=e: one(e)) for e in pages(ctx, "mail")
+             if (key := (e.data.get("url"), hash(e.data.get("text", "")))) not in cache]
+    if wait:
+        await settle(tasks)
     return cache
 
 
-async def refresh(ctx) -> list[dict]:
+async def refresh(ctx, wait: bool = True) -> list[dict]:
     """Extract new mail pages and publish discount, mail rules and messages again; returns the valid messages."""
-    await extract_new(ctx)
+    await extract_new(ctx, wait)
     return await publish(ctx)
 
 
@@ -215,7 +218,7 @@ class DiscountAnalyzer(Agent):
         while self.ctx.time_left() > 0:
             count = len(pages(self.ctx, "mail"))
             if count != seen:
-                await refresh(self.ctx)
+                await refresh(self.ctx, wait=False)       # each page publishes when extracted
                 seen = count
             if self.ctx.board.get("done.mail") is not None:
                 await refresh(self.ctx)             # pages saved while the last extraction ran

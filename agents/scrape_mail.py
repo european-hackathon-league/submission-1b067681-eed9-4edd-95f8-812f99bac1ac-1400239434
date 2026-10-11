@@ -19,7 +19,6 @@ import asyncio
 
 from agents.analyze_discount import covered_topics, publish, refresh
 from agents.compute_bid import position_keys
-from swarm.context import SUBMIT_RESERVE_S
 from swarm import Phase, register  # noqa: F401
 from swarm.browser_agent import Tab
 from swarm.normalize import norm_ref
@@ -27,6 +26,7 @@ from swarm.scraper import SiteScraper
 from swarm.sites import site_for
 
 TOPIC_TABS = int(os.environ.get("SWARM_MAIL_TABS", "2"))   # parallel mail topic tabs; was 3 (sandbox CPU)
+MAIL_STOP_EXTRA_S = 150   # mail browsing ends this long before collecting does (mail extraction is the slowest)
 
 SEARCH_RULES = (
     "Mailbox search combines words with AND and shows limited hits. Look-alike references (same reference with "
@@ -75,8 +75,11 @@ class MailScraper(SiteScraper):
              "(sender, date) in collapsed 'envelope/headers' section, which read_page includes.")
 
     async def browse(self, job: str, **kwargs):
-        kwargs.setdefault("stop_reserve", SUBMIT_RESERVE_S + 90)    # the mail analyst needs the last pages too
+        kwargs.setdefault("stop_extra", MAIL_STOP_EXTRA_S)
         return await super().browse(job, **kwargs)
+
+    def stop_extra(self, kwargs: dict) -> float:
+        return kwargs.get("stop_extra", MAIL_STOP_EXTRA_S)
 
     async def login(self) -> None:
         try:

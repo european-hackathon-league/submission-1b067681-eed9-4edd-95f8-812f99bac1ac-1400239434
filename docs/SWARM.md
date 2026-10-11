@@ -105,8 +105,57 @@ Replaying analysts on a saved board: the done flags are in the board, so waits r
 
 ## Time budget (20-minute run)
 
-`SUBMIT_RESERVE_S` (default 600 s, env `SWARM_SUBMIT_RESERVE_S`): collecting/analysing stops that long before expiry,
-then VERIFY/COMPUTE (instant) and SUBMIT, which stops `FINAL_MARGIN_S` (40 s) before expiry.
+Collecting/analysing stops `ctx.submit_reserve()` seconds before expiry, then VERIFY/COMPUTE (instant) and SUBMIT,
+which stops `FINAL_MARGIN_S` (40 s) before expiry. The reserve is estimated live: (wizard steps + 2.5 steps per
+position (3 steps each), minus the steps WizardPrep already did) x max(13 s, measured median browsing step x 1.15) +
+TAN lookup + safety, clamped to [390, 600] s (calibrated on sandbox signings: 12-13 s per submitter step). `SWARM_SUBMIT_RESERVE_S` > 0 fixes it. The collect cutoff and every browse's stop mark
+follow the live value (re-checked each second / before each step).
+
+## Where the time goes (swarm/timeline.py, scripts/timeline.py)
+
+Spans per agent: `browse.step`, `model.queue` (waiting for a slot), `model.call`, `extract`, `wait.dep` (an agent
+waiting for an upstream result), `recovery` (browser checks, hung tabs, failed model attempts), `guard`, `browse.failed`;
+counters for repeated work (`reads.repeat`, `browse.retries`, `erp.focused`, `browse.crashed`, ...); milestones (first
+page per site, first requirements, first usable bid, each position complete, wizard ready, collect end, submit start,
+TAN requested/received, entries checked, accepted submission). The run log gets a `progress` line per minute and five
+`TIMELINE` lines at the end (the platform keeps only the log's tail); local runs also write `.swarm/timeline.json`.
+`scripts/timeline.py <saved log>` rebuilds a timeline from any run log, old or new.
+
+## Coordination (what no longer waits)
+
+- `BidDrafter` recomputes the bid every 3 s during collection (`results["bid_draft"]`); the submitter falls back to it.
+- `compute()` names an open dependency for every omitted position and estimated field (`dependencies`, `unresolved`,
+  per-line `fields` status: verified / absent / estimated / missing). The coordinator turns those into gaps too, so a
+  condition without a price unit is a gap, not "no gaps". Mail gaps start 30 s after the index pass was analysed; a site
+  with follow-ups running takes new, different gaps (max 2 at once per site); an unchanged gap set is re-planned only
+  after 45 s.
+- ERP: the next job is chosen when a tab is free: focused re-reads of what the calculation misses, then prices/stock of
+  materials that already match a position, then searches and the best candidate per requirement, then other
+  candidates; candidates of already matched positions last. Extraction runs in the background (the tab moves on).
+- Analysts extract each page in its own task (`swarm.extract.start_once`): a new page never waits for a slow batch.
+- Price conditions: `reconcile_conditions` merges pages of one record only (same record id, linked page URLs, or a
+  single dated condition); conflicting reads become `_conflict` (unpriced, a gap), unrelated fragments stay apart.
+
+## Recovery
+
+- A hung-tab check closes only the caller's tab, unowned tabs and idle owned tabs, never another agent's active tab;
+  a healthy browser is not re-checked within 20 s. A hung own tab is renewed in place (main tabs stay main tabs).
+- A tab that hangs again on the same browser within 5 min continues in a new tab of another responsive browser.
+- A crashed browse returns an unfinished result (its pages are already saved); `browse_until_done` retries with the
+  saved topics instead of losing the scraper.
+- A collection browse that saved pages and then saves nothing for 10 steps ends (decoys, dead ends); the caller resumes.
+- Browsing model calls time out after 35 s (`SWARM_BROWSE_MODEL_TIMEOUT_S`) instead of 55 s.
+- The platform ends the run when the binding submission goes through; model calls then answer 401 "finished or
+  expired run token". With time left and a TAN requested, that counts as acceptance (no false failure, no retries).
+- ERP uses 6 tabs (`SWARM_ERP_TABS`): in an A/B with the same code, 6 tabs completed 17 ERP jobs vs 12 and priced
+  4 positions vs 1, without more failed browses.
+
+## Submission
+
+`WizardPrep` opens the bid wizard in browser 0's main tab near the end of collection (entering nothing); at submit
+start the mail main tab logs in and opens the inbox (no search filter); `check_entries` compares the summary page
+with the bid in code. `fill_form` prefers a real checkbox/switch over an `<output>` that echoes its text, and finds an
+unlabelled checkbox by its neighbouring text (a shadow-DOM confirmation box once cost 3.5 signing minutes).
 `RUN_LIMIT_S` (default 1200 s, env `SWARM_RUN_LIMIT_S`, 0 = off): every run plans with at most 20 minutes from process
 start, so 2-hour test runs show the timing of a scored run.
 

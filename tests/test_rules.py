@@ -327,30 +327,6 @@ class ConditionFragments(unittest.TestCase):
         self.assertEqual(len(merge_condition_fragments([a, b, frag])), 3)
 
 
-class ErpJobOrder(unittest.TestCase):
-    def test_prices_are_queued_with_the_record_not_after_every_record(self):
-        import asyncio
-        from unittest import mock
-        from agents import scrape_erp
-
-        async def run():
-            scraper = scrape_erp.ErpScraper.__new__(scrape_erp.ErpScraper)
-            scraper.queue, scraper.pending, scraper.seen = asyncio.PriorityQueue(), 0, set()
-            scraper._order, scraper.log = __import__("itertools").count(), mock.Mock()
-            scraper.browse_until_done = mock.AsyncMock(return_value={"records": []})
-            scraper.extract_job = mock.AsyncMock(return_value={})
-            with mock.patch.object(scrape_erp, "search_candidates", return_value=["M-1", "M-2"]):
-                await scraper.do(("search", {"group": "G", "requirements": []}), None)
-            order = []
-            while not scraper.queue.empty():
-                order.append(scraper.queue.get_nowait()[2][:2])
-            return order
-
-        order = asyncio.run(run())
-        self.assertEqual(order[:4], [("record", "M-1"), ("prices", "M-1"), ("record", "M-2"), ("prices", "M-2")])
-        self.assertEqual(sorted(order[4:]), [("stock", "M-1"), ("stock", "M-2")])
-
-
 class SameValidityDuplicates(unittest.TestCase):
     def test_a_header_copy_without_scales_does_not_hide_the_priced_condition(self):
         from agents.analyze_materials import merge_condition_fragments

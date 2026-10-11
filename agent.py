@@ -48,5 +48,20 @@ async def main() -> int:
     return 0 if status == 202 else 1
 
 
+async def _main_then_exit() -> int:
+    """main(), then a hard exit within 10 s: leftover tasks (guard loops, a pending TAN lookup, browser sessions) kept
+    asyncio.run() from returning after the workflow had ended, so the run stayed 'running' until the platform's
+    timeout (run_2746dd8a30f278e2: still running 10 min after 'Workflow failed')."""
+    import os
+    import threading
+    code = await main()
+    for stream in (sys.stdout, sys.stderr):
+        stream.flush()
+    timer = threading.Timer(10, os._exit, [code])
+    timer.daemon = True
+    timer.start()
+    return code
+
+
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main()))
+    sys.exit(asyncio.run(_main_then_exit()))

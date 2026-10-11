@@ -50,9 +50,6 @@ class TenderScraper(SiteScraper):
             # main tab: documents; new tab: Q&A (shares the login)
             await asyncio.gather(self.browse_until_done(DOCS_JOB, attempts=2, max_steps=20),
                                  self.browse_in_tabs([QA_JOB], max_steps=20))
-            for keywords, job in self.required():
-                if self.ctx.time_left() > 90 and not any(k in self.saved_topics() for k in keywords):
-                    self.log.warning("nothing saved for %s: focused browse", keywords)
-                    await self.browse(job, max_steps=15)
+            await self.required_pass()
         finally:
             await self.ctx.board.set(f"done.{self.role}", True)

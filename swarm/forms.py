@@ -32,7 +32,15 @@ SET_JS = r"""(args) => {
       clone.querySelectorAll('select,input,textarea').forEach(x => x.remove());
       t = clone.textContent;
     }
-    return t || c.getAttribute('aria-label') || c.placeholder || '';
+    t = t || c.getAttribute('aria-label') || c.placeholder || '';
+    if (!t && (c.type === 'checkbox' || c.type === 'radio')) {
+      // a box whose text sits next to it (web components: <input type=checkbox><span>text</span>, no <label>)
+      for (let p = c.parentElement, i = 0; p && i < 2 && !t; p = p.parentElement, i++) {
+        const own = (p.innerText || p.textContent || '').trim();
+        if (own && own.length < 120) t = own;
+      }
+    }
+    return t;
   };
   const controls = docs.flatMap(d => [...d.querySelectorAll('input,select,textarea,[contenteditable=true]')])
     .filter(c => c.type !== 'hidden' && visible(c));
@@ -44,17 +52,21 @@ SET_JS = r"""(args) => {
     return {status:'ambiguous', fields:choices.map(c => labelOf(c) || c.name)};
   const c = choices[0];
   if (!c) {
-    const outputs = docs.flatMap(d => [...d.querySelectorAll('output,[role=status],[role=note]')]).filter(visible);
-    if (w && outputs.some(e => norm(e.textContent) === w || norm(e.getAttribute('aria-label')).includes(w)))
-      return {status:'read-only', message:'This is output text, not an editable field or checkbox. Inspect the actual fields and validation errors.'};
     // no input with that label: a custom control (toggle/switch/checkbox built from elements, often in shadow DOM)
     // whose own text names it. "true"/"false": click it when its state differs; anything else: click it once.
-    const tsel = '[role=checkbox],[role=switch],[role=radio],[role=option],[role=button],[aria-pressed],[aria-checked],label,button';
+    // Real toggles (a checkbox/switch role, a checked/pressed state) come first: a page may echo the same text in a
+    // read-only <output> next to the real control (run_56cfdff4ff83d569 lost 3.5 min of signing time on that).
     const textOf = e => norm(e.getAttribute('aria-label') || e.innerText || e.textContent);
-    const toggles = docs.flatMap(d => [...d.querySelectorAll(tsel)]).filter(visible).filter(e => textOf(e));
-    const near = toggles.filter(e => textOf(e) === w || textOf(e).startsWith(w) || (w && textOf(e).includes(w) && textOf(e).length < w.length + 60));
-    near.sort((a, b) => textOf(a).length - textOf(b).length);       // the tightest element that carries the text
-    const t = near[0];
+    const matching = sel => {
+      const near = docs.flatMap(d => [...d.querySelectorAll(sel)]).filter(visible).filter(e => textOf(e))
+        .filter(e => textOf(e) === w || textOf(e).startsWith(w) || (w && textOf(e).includes(w) && textOf(e).length < w.length + 60));
+      return near.sort((a, b) => textOf(a).length - textOf(b).length);     // the tightest element that carries the text
+    };
+    const strong = matching('[role=checkbox],[role=switch],[aria-pressed],[aria-checked]');
+    const outputs = docs.flatMap(d => [...d.querySelectorAll('output,[role=status],[role=note]')]).filter(visible);
+    if (!strong.length && w && outputs.some(e => norm(e.textContent) === w || norm(e.getAttribute('aria-label')).includes(w)))
+      return {status:'read-only', message:'This is output text, not an editable field or checkbox. Inspect the actual fields and validation errors.'};
+    const t = strong[0] || matching('[role=radio],[role=option],[role=button],label,button')[0];
     if (t) {
       const isOn = e => ['true', 'mixed'].includes(e.getAttribute('aria-checked')) || e.getAttribute('aria-pressed') === 'true'
         || (e.querySelector && !!e.querySelector('input[type=checkbox]:checked'))
