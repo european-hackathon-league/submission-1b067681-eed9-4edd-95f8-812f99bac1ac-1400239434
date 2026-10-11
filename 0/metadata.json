@@ -1,0 +1,49 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4MBG912HAX6P39RJNB7F92B",
+  "session_id": "fea9f361-d3b5-4e0f-9b78-679b002a856d",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-11T02:08:41.421898Z",
+  "branch": "kurk-s/mail-topics",
+  "checkpoints_count": 8,
+  "files_touched": [
+    "agents/submit_bid.py"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "turn_id": "b08beeae0c88",
+  "checkpoint_transcript_start": 1919,
+  "transcript_lines_at_start": 1919,
+  "compact_transcript_start": 333,
+  "token_usage": {
+    "input_tokens": 64,
+    "cache_creation_tokens": 46880,
+    "cache_read_tokens": 6993937,
+    "output_tokens": 11095,
+    "api_call_count": 27
+  },
+  "session_metrics": {
+    "turn_count": 77
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-11T02:08:41.318961Z",
+    "agent_lines": 3,
+    "agent_removed": 1,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 3,
+    "total_lines_changed": 4,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}

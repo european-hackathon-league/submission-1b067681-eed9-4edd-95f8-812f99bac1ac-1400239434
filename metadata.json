@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4MBG912HAX6P39RJNB7F92B",
+  "strategy": "manual-commit",
+  "branch": "kurk-s/mail-topics",
+  "checkpoints_count": 8,
+  "files_touched": [
+    "agents/submit_bid.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 64,
+    "cache_creation_tokens": 46880,
+    "cache_read_tokens": 6993937,
+    "output_tokens": 11095,
+    "api_call_count": 27
+  }
+}
