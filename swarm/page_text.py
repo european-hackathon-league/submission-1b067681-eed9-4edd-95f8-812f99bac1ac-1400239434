@@ -65,6 +65,23 @@ EXTRACT_JS = r"""(opts) => {
 
 # Runs in the page: (label) => "clicked" | "missing". Clicks the first link/button whose text matches `label`
 # (the model names it), in the top document or a same-origin iframe, so a paged result set can be followed.
+# Runs in the page: () => count. Same-origin iframes (top document) that have a src but no readable text yet (still
+# loading, lazy, or stuck) are loaded again and awaited, up to a few seconds. A sandbox mail's reading pane was saved
+# as "(frame not loaded or not readable)" for the project bonus, setup pool and price index mails: no rates at all.
+LOAD_FRAMES_JS = r"""async () => {
+  const empty = f => { try { const d = f.contentDocument; return !d || !d.body || !d.body.innerText.trim(); } catch (e) { return false; } };
+  const frames = [...document.querySelectorAll('iframe[src]')].filter(empty);
+  await Promise.all(frames.map(f => new Promise(done => {
+    const timer = setTimeout(done, 4000);
+    f.addEventListener('load', () => { clearTimeout(timer); setTimeout(done, 300); }, {once: true});
+    f.loading = 'eager';
+    f.src = f.src;
+  })));
+  return frames.length;
+}"""
+
+FRAME_MISSING = "(frame not loaded or not readable"
+
 NEXT_JS = r"""(label) => {
   const norm = s => (s || '').replace(/[​-‍⁠﻿]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
   const want = norm(label);

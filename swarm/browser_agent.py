@@ -87,7 +87,7 @@ import models  # noqa: E402
 from swarm import timeline  # noqa: E402
 from swarm.llm import CALL_TIMEOUT_S, HTTP_TIMEOUT  # noqa: E402
 from swarm.guard import PopupGuard  # noqa: E402
-from swarm.page_text import EXTRACT_JS, NEXT_JS, clean  # noqa: E402
+from swarm.page_text import EXTRACT_JS, FRAME_MISSING, LOAD_FRAMES_JS, NEXT_JS, clean  # noqa: E402
 
 log = logging.getLogger("browse")
 
@@ -841,7 +841,14 @@ async def read_current_page(browser_session: BrowserSession) -> str:
     """Full text of the current page (see swarm.page_text). Retries while the page is still loading."""
     for attempt in range(4):
         try:
-            return clean(str(await _evaluate(browser_session, EXTRACT_JS, {})))
+            text = clean(str(await _evaluate(browser_session, EXTRACT_JS, {})))
+            if FRAME_MISSING in text:
+                try:
+                    if await asyncio.wait_for(_evaluate(browser_session, LOAD_FRAMES_JS), 8):
+                        text = clean(str(await _evaluate(browser_session, EXTRACT_JS, {})))
+                except Exception as error:      # the frame stays unreadable: the text says so and names its URL
+                    log.debug("frame reload: %s", error)
+            return text
         except Exception as error:   # page navigating / not ready yet
             if attempt == 3:
                 raise
