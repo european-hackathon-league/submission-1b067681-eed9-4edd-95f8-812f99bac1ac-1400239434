@@ -91,6 +91,8 @@ PAGE_TEXT_LIMIT = 12_000      # characters of one read the model sees (the saved
 # Median steps take 5-12 s; with the general 55 s limit every hung call idled an agent for ~57 s
 # (run_9bb728285d9bd88c: 12 such timeouts in 8 minutes, visible as 57 s gaps on every scraper).
 BROWSE_MODEL_TIMEOUT_S = float(os.environ.get("SWARM_BROWSE_MODEL_TIMEOUT_S", "35"))
+# Full-reasoning (submitter) replies are longer (p95 ~17 s); 57 s hangs cost run_53e37fff66cc4cc7 its signing time.
+SUBMIT_MODEL_TIMEOUT_S = float(os.environ.get("SWARM_SUBMIT_MODEL_TIMEOUT_S", "40"))
 
 # Compact system prompt for flash mode (replaces browser-use's long default prompt; same output contract).
 FLASH_SYSTEM = """Browser agent. Each step: read <browser_state>, act, move toward <user_request>.
@@ -878,7 +880,7 @@ async def _browse(ctx, goal: str, *, browser: int = 0, tab: Tab | None = None, s
     agent = Agent(task=goal + ("\n\nThis tab is already on the site: start from the current page." if reused else ""),
                   llm=browsing_llm, browser_session=session, tools=tools, use_vision=use_vision,
                   use_judge=False, generate_gif=False, max_failures=6, max_actions_per_step=max_actions_per_step,
-                  llm_timeout=min(CALL_TIMEOUT_S, BROWSE_MODEL_TIMEOUT_S if flash else CALL_TIMEOUT_S) + 2,
+                  llm_timeout=min(CALL_TIMEOUT_S, BROWSE_MODEL_TIMEOUT_S if flash else SUBMIT_MODEL_TIMEOUT_S) + 2,
                   step_timeout=120, directly_open_url=not reused,
                   extend_system_message=SYSTEM_EXTRA + (f"\n{hints}" if hints else ""), **prompt)
     guard = PopupGuard(ctx, author, careful=careful,

@@ -15,7 +15,9 @@ from swarm.llm import LLM
 # and the measured pace of browsing steps (see Context.submit_reserve), within [MIN_RESERVE_S, MAX_RESERVE_S].
 SUBMIT_RESERVE_S = float(os.environ.get("SWARM_SUBMIT_RESERVE_S", 0)) or 600     # the upper bound / fixed value
 FIXED_RESERVE = float(os.environ.get("SWARM_SUBMIT_RESERVE_S", 0)) > 0
-MIN_RESERVE_S = float(os.environ.get("SWARM_MIN_RESERVE_S", 390))
+# Signing took 3:17 to 8:40+ in eight sandbox runs (2026-10-11); with a 444 s reserve run_53e37fff66cc4cc7 ran out of
+# time. Until signing is consistently faster the live estimate may save at most 60 s of the 600 s.
+MIN_RESERVE_S = float(os.environ.get("SWARM_MIN_RESERVE_S", 540))
 MAX_RESERVE_S = SUBMIT_RESERVE_S
 FINAL_MARGIN_S = 40
 # Submission model, in browsing steps: wizard steps independent of the positions (login, tender, wizard start, bidder,

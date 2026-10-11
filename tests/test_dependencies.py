@@ -238,7 +238,7 @@ class DraftAndReserve(unittest.IsolatedAsyncioTestCase):
         tl = timeline.reset()
         ctx = Context(task={"brief": "", "access": []}, board=Blackboard(), llm=None, pool=None)
         ctx.board.results["tender"] = {"positions": [{"position": str(i)} for i in range(5)]}
-        with mock.patch.object(c, "FIXED_RESERVE", False):
+        with mock.patch.object(c, "FIXED_RESERVE", False), mock.patch.object(c, "MIN_RESERVE_S", 300):
             for i in range(10):
                 tl.add("browse.step", "step", i * 10.0, i * 10.0 + 10.0)        # 10 s per step measured
             slow_free = ctx.submit_reserve()
@@ -248,7 +248,7 @@ class DraftAndReserve(unittest.IsolatedAsyncioTestCase):
                 tl.add("browse.step", "step", 0.0, 40.0)                        # pace drops to 40 s per step
             slow = ctx.submit_reserve()
         self.assertLess(prepared, slow_free)
-        self.assertLessEqual(c.MIN_RESERVE_S, prepared)
+        self.assertLessEqual(300, prepared)
         self.assertEqual(slow, c.MAX_RESERVE_S)
 
     async def test_collection_cutoff_follows_the_live_reserve(self):
