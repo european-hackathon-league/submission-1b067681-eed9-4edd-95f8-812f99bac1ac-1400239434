@@ -5,6 +5,8 @@
   "branch": "first_100",
   "checkpoints_count": 1,
   "files_touched": [
+    "docs/INTEGRATION.md",
+    "swarm/llm.py",
     "tests/test_llm_slots.py"
   ],
   "sessions": [
@@ -17,10 +19,10 @@
     }
   ],
   "token_usage": {
-    "input_tokens": 20,
-    "cache_creation_tokens": 8003,
-    "cache_read_tokens": 3458067,
-    "output_tokens": 5280,
-    "api_call_count": 9
+    "input_tokens": 2,
+    "cache_creation_tokens": 716,
+    "cache_read_tokens": 388701,
+    "output_tokens": 379,
+    "api_call_count": 1
   }
 }
