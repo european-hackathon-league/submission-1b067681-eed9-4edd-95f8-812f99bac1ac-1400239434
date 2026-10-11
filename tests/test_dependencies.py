@@ -196,6 +196,29 @@ class ErpScheduling(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(worker, 3)
 
 
+class ErpPause(unittest.IsolatedAsyncioTestCase):
+    async def test_worker_pauses_near_cutoff_and_resumes_when_the_reserve_shrinks(self):
+        from agents.scrape_erp import ErpScraper
+        ctx = Context(task={"brief": "", "access": []}, board=Blackboard(), llm=None, pool=None)
+        left = [30.0]                                 # below the ERP's analysis margin: no new job yet
+        ctx.time_left = lambda: left[0]
+        erp = ErpScraper(ctx)
+        ran = []
+
+        async def do(job, tab):
+            ran.append(job[0])
+        erp.do = do
+        erp.add(("search", {"group": "G", "requirements": []}))
+        erp.producer_done = True
+        worker = asyncio.create_task(erp.worker(None))
+        await asyncio.sleep(0.1)
+        self.assertEqual(ran, [])
+        self.assertFalse(worker.done())              # waiting, not gone
+        left[0] = 200.0                               # the wizard warm-up finished: the reserve shrank
+        await asyncio.wait_for(worker, 5)
+        self.assertEqual(ran, ["search"])
+
+
 class DraftAndReserve(unittest.IsolatedAsyncioTestCase):
     async def test_draft_bid_is_published_during_collection_with_milestones(self):
         from agents.compute_bid import BidDrafter

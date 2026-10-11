@@ -271,7 +271,14 @@ class ErpScraper(SiteScraper):
     async def worker(self, tab: Tab | None) -> None:
         """Takes jobs until none is queued and no running job or extraction can add more (or time is up)."""
         try:
-            while self.ctx.time_left() > ANALYSIS_TIME_S:
+            while self.ctx.time_left() > 0:
+                if self.ctx.time_left() <= ANALYSIS_TIME_S:
+                    # too late for a new job now, but the live reserve may shrink again (e.g. the wizard warm-up
+                    # finishing): wait instead of quitting (run_e38e6666df284e76 ended collection with time unused)
+                    if self.pending <= 0 and self.producer_done and not self.jobs:
+                        return
+                    await asyncio.sleep(2)
+                    continue
                 job = self.take()
                 if job is None:
                     if self.pending <= 0 and self.producer_done:
@@ -300,7 +307,7 @@ class ErpScraper(SiteScraper):
 
             async def produce():
                 try:
-                    while self.ctx.time_left() > ANALYSIS_TIME_S:
+                    while self.ctx.time_left() > 0:
                         for item in await _items(self.ctx):
                             self.add(("search", item))
                         if self.ctx.board.get("requirements_final"):
