@@ -72,6 +72,25 @@ class BrowserControls(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(await self.page.evaluate('window.clicked'))
         self.assertIn('read-only output', await self.page.evaluate(EXTRACT_JS, {}))
 
+    async def test_real_toggle_wins_over_an_output_echoing_its_text(self):
+        await self.page.set_content('<output>Nettosumme manuell bestaetigen</output><x-confirm></x-confirm>')
+        await self.page.evaluate("document.querySelector('x-confirm').attachShadow({mode:'open'}).innerHTML="
+                                 "'<div role=\"checkbox\" aria-checked=\"false\" tabindex=0 "
+                                 "onclick=\"this.setAttribute(`aria-checked`, this.getAttribute(`aria-checked`)===`true`?`false`:`true`)\">"
+                                 "Nettosumme manuell bestaetigen</div>'")
+        report = await fill_fields(self.page.evaluate, [('Nettosumme manuell bestaetigen', 'true')])
+        self.assertNotIn('FAILED', report)
+        state = await self.page.evaluate("document.querySelector('x-confirm').shadowRoot.firstElementChild.getAttribute('aria-checked')")
+        self.assertEqual(state, 'true')
+
+    async def test_unlabelled_shadow_checkbox_is_found_by_its_neighbouring_text(self):
+        await self.page.set_content('<output>Summe manuell bestaetigen</output><x-box></x-box>')
+        await self.page.evaluate("document.querySelector('x-box').attachShadow({mode:'open'}).innerHTML="
+                                 "'<div><input type=checkbox><span>Summe manuell bestaetigen</span></div>'")
+        report = await fill_fields(self.page.evaluate, [('Summe manuell bestaetigen', 'true')])
+        self.assertNotIn('FAILED', report)
+        self.assertTrue(await self.page.evaluate("document.querySelector('x-box').shadowRoot.querySelector('input').checked"))
+
     async def test_duplicate_gates_are_filled_only_within_observed_scope(self):
         from swarm.forms import scoped_evaluator, SLIDER_JS
         gate = '<section><input type="range" aria-label="Unlock" value="0"><input type="checkbox" aria-label="Confirm"></section>'
@@ -307,6 +326,8 @@ class InterruptedCollection(unittest.IsolatedAsyncioTestCase):
         async def page_text(session): return 'Bid FIXTURE successfully submitted. Receipt 56789.'
         async def fake_browse(ctx, goal, **kwargs):
             nonlocal mail_calls, portal_calls
+            if kwargs['author'].endswith('.mailbox'):          # inbox warm-up at submit start
+                return {'summary':'inbox open', 'done':True, 'steps':1}
             if kwargs['browser'] == 3:
                 mail_calls += 1
                 await release.wait()

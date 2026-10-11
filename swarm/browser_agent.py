@@ -84,7 +84,7 @@ _stop_torn_down_bus()
 
 import browsers  # noqa: E402
 import models  # noqa: E402
-from swarm.context import SUBMIT_RESERVE_S  # noqa: E402
+from swarm import timeline  # noqa: E402
 from swarm.llm import CALL_TIMEOUT_S, HTTP_TIMEOUT  # noqa: E402
 from swarm.guard import PopupGuard  # noqa: E402
 from swarm.page_text import EXTRACT_JS, NEXT_JS, clean  # noqa: E402
@@ -111,6 +111,12 @@ for _name in ("browser_use", "bubus", "cdp_use", "httpx"):
     logging.getLogger(_name).setLevel(logging.WARNING)
 
 PAGE_TEXT_LIMIT = 12_000      # characters of one read the model sees (the saved evidence keeps up to 10x more)
+# A browsing step's model call that has not answered by then is retried (browser-use counts it as a failed step).
+# Median steps take 5-12 s; with the general 55 s limit every hung call idled an agent for ~57 s
+# (run_9bb728285d9bd88c: 12 such timeouts in 8 minutes, visible as 57 s gaps on every scraper).
+BROWSE_MODEL_TIMEOUT_S = float(os.environ.get("SWARM_BROWSE_MODEL_TIMEOUT_S", "35"))
+# Full-reasoning (submitter) replies are longer (p95 ~17 s); 57 s hangs cost run_53e37fff66cc4cc7 its signing time.
+SUBMIT_MODEL_TIMEOUT_S = float(os.environ.get("SWARM_SUBMIT_MODEL_TIMEOUT_S", "40"))
 
 # Compact system prompt for flash mode (replaces browser-use's long default prompt; same output contract).
 FLASH_SYSTEM = """Browser agent. Each step: read <browser_state>, act, move toward <user_request>.
@@ -216,6 +222,17 @@ def allowed_domains(task: dict) -> list[str]:
     return out
 
 
+def note_run_closed(ctx, error: Exception) -> None:
+    """The platform ends a run when the portal accepts the binding submission; from then on every model call answers
+    401 'unknown, finished or expired run token' (run_e54cd26dc7ff4308: the bid went in, then five 'failed'
+    signing retries). With time still on the clock that is the platform's acceptance signal: remember it."""
+    text = str(error)
+    if ctx is not None and "401" in text and "finished or expired run token" in text:
+        if not ctx.shared.get("run_closed"):
+            ctx.shared["run_closed"] = {"left": round(ctx.seconds_left()), "error": text[:160]}
+            log.warning("platform closed the run (model token finished) with %.0fs left", ctx.seconds_left())
+
+
 class QwenChat(ChatOpenAI):
     """ChatOpenAI that switches Qwen's separate reasoning pass off (browser-use already asks for its own short
     thinking in the reply), which roughly halves the time per step, and asks for a JSON object reply (otherwise the
@@ -239,8 +256,14 @@ class QwenChat(ChatOpenAI):
             kwargs.setdefault("response_format", {"type": "json_object"})   # without it Qwen sometimes replies in prose
             if self._usage_ctx is not None:
                 usage = self._usage_ctx.llm
+                queued = timeline.now()
                 async with usage._sem:
-                    reply = await create(*args, **kwargs)
+                    timeline.add("model.queue", "browse", queued)
+                    try:
+                        reply = await create(*args, **kwargs)
+                    except Exception as error:
+                        note_run_closed(self._usage_ctx, error)
+                        raise
                 usage.calls += 1
                 if reply.usage:
                     usage.tokens["prompt"] += reply.usage.prompt_tokens or 0
@@ -311,6 +334,18 @@ class Tab:
         self.target_id: str | None = None
         self.popups: set[str] = set()   # tabs the page opened (window.open, target=_blank) and the agent went into
         self.used = False            # an agent worked here before: the next browse continues from the current page
+        self.suspect = False         # the last browse here failed (state timeouts / exception): check it before reuse
+        self.renewed = False         # its page was hung and closed: open() creates a new one (main tabs too)
+        self.replacement: "Tab | None" = None   # work moved to another browser: closed together with this tab
+
+    def targets(self) -> set[str]:
+        return set(self.popups) | ({self.target_id} if self.target_id else set())
+
+    def renew(self) -> None:
+        """Forget a page that was closed as hung; the next browse opens a fresh tab (logged in via shared cookies)."""
+        for target in self.targets():
+            _OWNERS.pop(target, None)
+        self.target_id, self.popups, self.used, self.renewed = None, set(), False, True
 
     def claim(self, target_id: str) -> None:
         self.target_id = target_id
@@ -325,7 +360,7 @@ class Tab:
 
     async def open(self) -> None:
         """Create the tab now (before the session connects) so no other agent ever sees it unowned."""
-        if self.target_id or self.main or not browsers.cdp_urls():
+        if self.target_id or (self.main and not self.renewed) or not browsers.cdp_urls():
             return
         # Default: a background tab next to the others in the browser's window, so the live view's tab strip shows every
         # agent (focus emulation keeps typing and focus-dependent scripts working in it; Chrome only slows its timers).
@@ -338,6 +373,9 @@ class Tab:
 
     async def close(self) -> None:
         """Close the tab and the popups it adopted (the main tab itself stays open)."""
+        if self.replacement is not None:
+            replacement, self.replacement = self.replacement, None
+            await replacement.close()
         targets = list(self.popups) + ([self.target_id] if self.target_id and not self.main else [])
         self.popups = set()
         if not self.main:
@@ -376,15 +414,31 @@ async def browser_responds(browser: int, timeout: float = 12) -> bool:
 
 
 TAB_PROBE_S = 8          # a page that cannot evaluate `1` within this long is hung
+CHECK_EVERY_S = 20       # a browser whose tabs were checked this recently is not checked again for a healthy tab
+
+_ACTIVE: set["Tab"] = set()            # tabs with a browse() running right now
+_HUNG_AT: dict[int, list[float]] = {}  # browser index -> when a tab of it was closed as hung
+REPEAT_HANG_S = 300                    # a second hang within this long moves the work to another browser
+_CHECKED: dict[int, float] = {}        # browser index -> time.monotonic() of its last clean hung-tab check
 
 
-async def close_hung_tabs(browser: int, keep: str | None = None) -> list[str]:
+def may_close(target_id: str, mine: "Tab | None") -> bool:
+    """A recovery check may close only the caller's own tab (and its popups), tabs nobody owns, and owned tabs no
+    browse is using. Another agent's active tab is never touched: a slow page there is that agent's business (its own
+    browse ends after repeated state timeouts and recovers itself); closing it destroyed healthy work in progress."""
+    owner = owner_of(target_id)
+    return owner is None or owner is mine or owner not in _ACTIVE
+
+
+async def close_hung_tabs(browser: int, keep: str | None = None, mine: "Tab | None" = None) -> list[str]:
     """Close the tabs of `browser` whose page no longer runs JavaScript. browser-use attaches to every tab when it
     connects; one hung tab made each connect time out after 15 s, although the browser itself still answered (two
-    sandbox runs: the submitter failed 5 times that way). `keep` is never closed. Returns the closed target ids."""
+    sandbox runs: the submitter failed 5 times that way). `keep` is never closed, nor another agent's active tab
+    (`may_close`). Returns the closed target ids."""
     async def probe(client) -> list[str]:
         targets = (await client.send.Target.getTargets())["targetInfos"]
-        pages = [t for t in targets if t.get("type") == "page" and t["targetId"] != keep]
+        pages = [t for t in targets if t.get("type") == "page" and t["targetId"] != keep
+                 and may_close(t["targetId"], mine)]
 
         async def hung(target) -> bool:
             try:
@@ -421,21 +475,51 @@ async def close_hung_tabs(browser: int, keep: str | None = None) -> list[str]:
 
 async def responsive_tab(tab: "Tab") -> "Tab":
     """The tab to work in: `tab` if its browser answers, else a new tab of the next browser that does. Any browser can
-    open any site, so one dead browser must not take a whole role (or the signing) down with it."""
+    open any site, so one dead browser must not take a whole role (or the signing) down with it. A healthy tab of a
+    browser checked within CHECK_EVERY_S skips the check (it cost every browse a CDP round trip)."""
     urls = browsers.cdp_urls()
     if not urls:
         return tab
-    if await browser_responds(tab.browser):
-        closed = await close_hung_tabs(tab.browser)
-        if tab.target_id and tab.target_id in closed:
-            log.warning("browser %d: this agent's tab was hung and closed; continuing in a new tab", tab.browser)
-            return Tab(tab.browser)
+    if tab.replacement is not None:          # work already moved to another browser: keep using that tab
+        return await responsive_tab(tab.replacement)
+    recent = time.monotonic() - _CHECKED.get(tab.browser, -1e9) < CHECK_EVERY_S
+    if recent and not tab.suspect:
         return tab
-    for step in range(1, len(urls)):
-        other = (tab.browser + step) % len(urls)
-        if await browser_responds(other):
-            log.warning("browser %d is unreachable: continuing in a new tab of browser %d", tab.browser, other)
-            return Tab(other)
+    with timeline.span("recovery", f"check browser {tab.browser}"):
+        if await browser_responds(tab.browser):
+            closed = await close_hung_tabs(tab.browser, mine=tab)
+            if closed:
+                timeline.count("tabs.hung_closed", len(closed))
+            else:
+                _CHECKED[tab.browser] = time.monotonic()
+            if tab.target_id and tab.target_id in closed:
+                now = time.monotonic()
+                recent = [t for t in _HUNG_AT.get(tab.browser, []) if now - t < REPEAT_HANG_S]
+                _HUNG_AT[tab.browser] = recent + [now]
+                timeline.count("tabs.replaced")
+                if recent:            # hung again on this browser (run_db181692d8232b97: twice while signing)
+                    others = [(len([t for t in _HUNG_AT.get(b, []) if now - t < REPEAT_HANG_S]), b)
+                              for b in range(len(urls)) if b != tab.browser]
+                    for _, other in sorted(others):
+                        if await browser_responds(other):
+                            log.warning("browser %d hung again: continuing in a new tab of browser %d",
+                                        tab.browser, other)
+                            timeline.count("tabs.moved_browser")
+                            tab.renew()
+                            tab.replacement = Tab(other)      # closed together with `tab` by its owner
+                            return tab.replacement
+                log.warning("browser %d: this agent's tab was hung and closed; continuing in a new tab", tab.browser)
+                tab.renew()           # same Tab object: its owner still closes it, and a main tab stays the main tab
+            tab.suspect = False
+            return tab
+        for step in range(1, len(urls)):
+            other = (tab.browser + step) % len(urls)
+            if await browser_responds(other):
+                log.warning("browser %d is unreachable: continuing in a new tab of browser %d", tab.browser, other)
+                timeline.count("tabs.moved_browser")
+                moved = Tab(other)
+                tab.replacement = moved         # closed together with `tab` by its owner
+                return moved
     return tab   # none answers: try the original again (the caller's retry logic takes over)
 
 
@@ -755,9 +839,30 @@ def _step_line(agent) -> str:
 
 async def browse(ctx, goal: str, *, browser: int = 0, tab: Tab | None = None, site_id: str = "", on_record=None,
                  max_steps: int = 40, hints: str = "", author: str = "browse", use_vision=False,
-                 stop_reserve: float | None = None, extra_tools=None, max_actions_per_step: int = 4,
-                 flash: bool = True, careful: bool = False, dedupe_reads: bool = True,
-                 stop_on_record: str = "") -> dict:
+                 stop_reserve: float | None = None, stop_extra: float = 0.0, extra_tools=None,
+                 max_actions_per_step: int = 4, flash: bool = True, careful: bool = False, dedupe_reads: bool = True,
+                 stop_on_record: str = "", idle_steps: int | None = None) -> dict:
+    """See `_browse`. Measured as one span; the agent context variable names `author` inside."""
+    token = timeline.AGENT.set(author)
+    started = timeline.now()
+    try:
+        out = await _browse(ctx, goal, browser=browser, tab=tab, site_id=site_id, on_record=on_record,
+                            max_steps=max_steps, hints=hints, author=author, use_vision=use_vision,
+                            stop_reserve=stop_reserve, stop_extra=stop_extra, extra_tools=extra_tools,
+                            max_actions_per_step=max_actions_per_step, flash=flash, careful=careful,
+                            dedupe_reads=dedupe_reads, stop_on_record=stop_on_record, idle_steps=idle_steps)
+        if not out.get("done"):
+            timeline.add("browse.failed", out.get("summary", "")[:60], started)
+        return out
+    finally:
+        timeline.AGENT.reset(token)
+
+
+async def _browse(ctx, goal: str, *, browser: int = 0, tab: Tab | None = None, site_id: str = "", on_record=None,
+                  max_steps: int = 40, hints: str = "", author: str = "browse", use_vision=False,
+                  stop_reserve: float | None = None, stop_extra: float = 0.0, extra_tools=None,
+                  max_actions_per_step: int = 4, flash: bool = True, careful: bool = False,
+                  dedupe_reads: bool = True, stop_on_record: str = "", idle_steps: int | None = None) -> dict:
     """Run a browser-use agent until done / max_steps / out of time. Returns {"summary", "records", "steps", "done"}.
 
     `tab`: the tab to work in (default: the main tab of `browser`). Screenshots are off by default
@@ -767,16 +872,25 @@ async def browse(ctx, goal: str, *, browser: int = 0, tab: Tab | None = None, si
     `topic` reach `on_record` as {"kind": "page", "data": {...}}.
     A PopupGuard (swarm/guard.py) clears popups, notices and error pages next to the agent; `careful=True` limits it to
     noise without inputs (the bid submitter). `dedupe_reads`: read_page of a URL another agent already saved returns
-    the saved text instead of opening it again (off for mails that change, such as TANs).
+    the saved text instead of opening it again (off for mails that change, such as TANs). `idle_steps`: after the
+    first saved page/fact, stop once this many steps in a row saved nothing new (the caller resumes).
     """
     records: list[dict] = []
-    reserve = SUBMIT_RESERVE_S if stop_reserve is None else stop_reserve
+    progress = {"saved_at": None, "idle_stop": False}     # step of the last saved page/fact
+
+    def reserve() -> float:
+        """Seconds-left mark at which this browse stops: fixed, or the live submission reserve plus `stop_extra`."""
+        if stop_reserve is not None:
+            return stop_reserve
+        return ctx.stop_at(stop_extra) if ctx is not None and hasattr(ctx, "stop_at") else stop_extra
 
     async def emit(rec: dict) -> None:
         records.append(rec)
+        progress["saved_at"] = len(step_started)
         if on_record:
             await on_record(rec)
 
+    step_started: list[float] = []
     tools = build_tools(ctx, site_id, author, emit, dedupe_reads=dedupe_reads, stop_on_record=stop_on_record)
     if extra_tools:
         extra_tools(tools)
@@ -797,7 +911,8 @@ async def browse(ctx, goal: str, *, browser: int = 0, tab: Tab | None = None, si
     agent = Agent(task=goal + ("\n\nThis tab is already on the site: start from the current page." if reused else ""),
                   llm=browsing_llm, browser_session=session, tools=tools, use_vision=use_vision,
                   use_judge=False, generate_gif=False, max_failures=6, max_actions_per_step=max_actions_per_step,
-                  llm_timeout=CALL_TIMEOUT_S + 2, step_timeout=120, directly_open_url=not reused,
+                  llm_timeout=min(CALL_TIMEOUT_S, BROWSE_MODEL_TIMEOUT_S if flash else SUBMIT_MODEL_TIMEOUT_S) + 2,
+                  step_timeout=120, directly_open_url=not reused,
                   extend_system_message=SYSTEM_EXTRA + (f"\n{hints}" if hints else ""), **prompt)
     guard = PopupGuard(ctx, author, careful=careful,
                        fill=lambda pairs, then_click, item_id: fill_page(session, pairs, "", then_click, item_id))
@@ -806,20 +921,27 @@ async def browse(ctx, goal: str, *, browser: int = 0, tab: Tab | None = None, si
 
     async def before_step(_agent) -> None:
         nonlocal guard_task
-        if ctx.seconds_left() <= reserve:
+        if ctx.seconds_left() <= reserve():
             agent.stop()
             return
-        try:                    # the page the model is about to see: cleared first
-            await asyncio.wait_for(guard.sweep(evaluate), 25)
-        except Exception as error:
-            log.debug("guard before step failed: %s", error)
+        with timeline.span("guard", "sweep"):
+            try:                    # the page the model is about to see: cleared first
+                await asyncio.wait_for(guard.sweep(evaluate), 25)
+            except Exception as error:
+                log.debug("guard before step failed: %s", error)
         if guard_task is None:  # from now on also between steps (popups that appear while the model thinks)
             guard_task = asyncio.create_task(guard.loop(evaluate))
+        step_started.append(timeline.now())
 
     secrets = [str((s.get("credentials") or {}).get("password") or "") for s in (ctx.task.get("access") or [])] \
         if ctx is not None else []
 
     async def after_step(_agent) -> None:
+        if step_started:
+            line = "no reply" if not agent.history.history or agent.history.history[-1].model_output is None else "step"
+            timeline.add("browse.step", line, step_started[-1])
+            if line == "no reply":
+                timeline.count("steps.no_reply")
         try:
             line = _step_line(agent)
             for secret in secrets:        # the model's memory sometimes repeats the login
@@ -828,16 +950,41 @@ async def browse(ctx, goal: str, *, browser: int = 0, tab: Tab | None = None, si
             log.info("%s step %d: %s", author, agent.state.n_steps - 1, line)
         except Exception as error:
             log.debug("step line failed: %s", error)
+        if idle_steps and progress["saved_at"] is not None and len(step_started) - progress["saved_at"] >= idle_steps:
+            # it saved evidence, then went on without saving anything (run_7b060fa870cea9b6: 6 min on a decoy mail)
+            log.warning("%s: %d steps without new evidence; ending so the caller can continue from what is saved",
+                        author, idle_steps)
+            timeline.count("browse.idle_stops")
+            progress["idle_stop"] = True
+            agent.stop()
         if session._state_timeouts >= 2:
             log.warning("%s: repeated browser-state timeouts; ending this connection so the caller can reattach", author)
+            timeline.count("browse.state_timeouts")
+            tab.suspect = True
             agent.stop()
 
+    failure = ""
+    _ACTIVE.add(tab)
+    # Hard ceiling for a step that never returns. The live stop mark is checked before every step; the reserve can
+    # still shrink later (measured pace), and the orchestrator ends collection at the real cutoff anyway.
+    from swarm.context import MIN_RESERVE_S
+    ceiling = stop_reserve if stop_reserve is not None else min(reserve(), MIN_RESERVE_S + stop_extra)
     try:
-        async with asyncio.timeout(max(1, ctx.seconds_left() - reserve)):
+        async with asyncio.timeout(max(1, ctx.seconds_left() - ceiling)):
             history = await agent.run(max_steps=max_steps, on_step_start=before_step, on_step_end=after_step)
     except TimeoutError:
         history = agent.history
+    except Exception as error:  # noqa: BLE001 - the caller decides on a retry; saved records stay saved
+        # A browse that crashed (browser-use raised out of its run loop) used to take the whole scraper down with it
+        # (run_9bb728285d9bd88c: the mail scraper died 3 min in). Its records are already on the board; report it as
+        # an unfinished attempt so the caller can resume with what is saved.
+        failure = f"browser agent failed: {type(error).__name__}: {str(error)[:160]}"
+        log.warning("%s: %s", author, failure)
+        timeline.count("browse.crashed")
+        tab.suspect = True
+        history = agent.history
     finally:
+        _ACTIVE.discard(tab)
         if guard_task is not None:
             guard_task.cancel()
             await asyncio.gather(guard_task, return_exceptions=True)
@@ -853,11 +1000,13 @@ async def browse(ctx, goal: str, *, browser: int = 0, tab: Tab | None = None, si
             await asyncio.gather(*tasks, return_exceptions=True)
             if browsing_llm._sdk_client is not None:
                 await browsing_llm._sdk_client.close()
-    summary = history.final_result() or ("Browser state repeatedly timed out; reattach to the existing tab and inspect it"
-                                         if session._state_timeouts >= 2 else "")
+    summary = history.final_result() or failure or (
+        "Browser state repeatedly timed out; reattach to the existing tab and inspect it"
+        if session._state_timeouts >= 2 else
+        f"stopped after {idle_steps} steps without new evidence (decoy or dead end?)" if progress["idle_stop"] else "")
     return {"summary": summary, "records": records, "steps": len(history.history),
-            "done": history.is_done() and history.is_successful() is True,
-            "finished": history.is_done(), "guard_actions": guard.actions}
+            "done": not failure and history.is_done() and history.is_successful() is True,
+            "finished": history.is_done(), "guard_actions": guard.actions, "error": failure}
 
 
 def build_tools(ctx, site_id: str, author: str, emit, dedupe_reads: bool = True, stop_on_record: str = "") -> Tools:
@@ -1009,6 +1158,10 @@ def build_tools(ctx, site_id: str, author: str, emit, dedupe_reads: bool = True,
     @tools.action("Read full text of current page (or of `url` / several `urls`) incl. iframes, collapsed sections, "
                   "tooltips; `next_page_link` follows all pages; `topic` saves as evidence.", param_model=ReadParams)
     async def read_page(params: ReadParams, browser_session: BrowserSession):
+        with timeline.span("browse.read", params.topic or "read"):
+            return await _read_page(params, browser_session)
+
+    async def _read_page(params: ReadParams, browser_session: BrowserSession):
         current = await browser_session.get_current_page_url()
         wanted = [u for u in ([params.url] if params.url else []) + list(params.urls or []) if u][:12]
         targets = []
@@ -1021,9 +1174,12 @@ def build_tools(ctx, site_id: str, author: str, emit, dedupe_reads: bool = True,
         for target in targets or [None]:
             known = reads.get(target) if (target and dedupe_reads and not params.refresh) else None
             if known and known.get("complete", True) and not params.next_page_link:
+                timeline.count("reads.reused")
                 done.append((target, f"(already saved by {known['author']} as '{known['topic']}'; this tab did NOT "
                                      f"navigate there)\n{known['text']}", known.get("pages", 1)))
                 continue
+            if (target or current) in reads:
+                timeline.count("reads.repeat")       # the same URL read again (live read requested)
             try:
                 done.append(await read_one(target, params, browser_session))
             except Exception as error:      # one bad page must not lose the others

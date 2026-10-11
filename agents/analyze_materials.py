@@ -33,7 +33,7 @@ MATERIAL_ROW = """{"material": "material number", "description": "", "kataloggru
   "allocation_mass_g": "allocation/Umlage weight per piece in g", "surcharge_mass_g": "surcharge mass per piece in g",
   "metal_index": "price index code"}"""
 
-CONDITION_ROW = """{"material": "", "record": "condition record no./page", "condition_type": "",
+CONDITION_ROW = """{"material": "", "record": "condition record number as shown (null if none shown)", "condition_type": "",
   "valid_from": "as shown", "valid_to": "as shown", "currency": "", "fx_key": null,
   "price_unit": "price unit quantity, e.g. 100", "number_format": "e.g. en-US or de-DE if stated",
   "scales": [{"min_qty": "as shown incl. locale marker", "price": "as shown incl. locale marker"}]}"""
@@ -169,51 +169,114 @@ def merge_materials(extracted: list[dict], groups=()) -> dict:
     return out
 
 
-FILLABLE = ("scales", "price_unit", "currency", "fx_key", "number_format")
+FILLABLE = ("scales", "price_unit", "currency", "fx_key", "number_format", "condition_type", "record")
+IDENTITY = ("record", "condition_type", "currency", "fx_key")      # must agree when both sides show them
+
+
+def _dated(c: dict) -> bool:
+    return bool(c.get("valid_from") or c.get("valid_to"))
+
+
+def _value_equal(key: str, a, b) -> bool:
+    if key == "price_unit":
+        x, y = to_decimal(a), to_decimal(b)
+        return x == y if x is not None and y is not None else norm_ref(a) == norm_ref(b)
+    if key == "scales":
+        def rows(v):
+            return sorted((str(to_decimal(r.get("min_qty"))), str(to_decimal(r.get("price")))) for r in v or [])
+        return rows(a) == rows(b)
+    return norm_ref(a) == norm_ref(b)
+
+
+def _conflicts(a: dict, b: dict, keys) -> list[str]:
+    return [k for k in keys if not blank(a.get(k)) and not blank(b.get(k)) and a.get(k) not in ([], {})
+            and b.get(k) not in ([], {}) and not _value_equal(k, a.get(k), b.get(k))]
+
+
+def _url_linked(a: dict, b: dict) -> bool:
+    """Two pages of one record: the same page, or one URL path extending the other (header -> its scale register)."""
+    def path(u):
+        return str(u or "").split("#")[0].split("?")[0].rstrip("/")
+    x, y = path(a.get("_url")), path(b.get("_url"))
+    return bool(x and y) and (x == y or x.startswith(y + "/") or y.startswith(x + "/"))
+
+
+def _fill(target: dict, frag: dict) -> None:
+    clash = _conflicts(target, frag, ("scales", "price_unit", "number_format"))
+    if clash:
+        target["_conflict"] = (target.get("_conflict", "") + f" {', '.join(clash)} differ between pages "
+                               f"({target.get('_url')} vs {frag.get('_url')})").strip()
+        return
+    for key in FILLABLE:
+        if blank(target.get(key)) or target.get(key) in ([], {}):
+            if not blank(frag.get(key)) and frag.get(key) not in ([], {}):
+                target[key] = frag[key]
+    target["_merged"] = target.get("_merged", 1) + 1
+
+
+def reconcile_conditions(conditions: list[dict]) -> list[dict]:
+    """Price conditions of one material read on several pages (a header with validity and price unit, a separate
+    scales register, a re-read) become one condition only when they belong together:
+    - copies of one dated record (same record id and validity) are merged; differing scales or price units mark the
+      record as conflicting (`_conflict`) instead of picking one;
+    - an undated fragment joins a dated condition when its record id names that condition, or (no ids to compare)
+      when its page belongs to that condition's page, or the material has a single dated condition; identity fields
+      shown on both sides (record, type, currency, FX key) must agree;
+    - anything else stays separate: an unrelated or ambiguous fragment never completes another record's price
+      (it is not selectable by date either; compute_bid reports the missing part as a dependency).
+    Late pages are fine: the view is rebuilt from every extracted page each time."""
+    out: list[dict] = []
+    for c in conditions:                         # 1. copies of one dated record
+        c = dict(c)
+        twin = next((o for o in out if _dated(c) and _dated(o)
+                     and norm_ref(o.get("material")) == norm_ref(c.get("material"))
+                     and norm_ref(o.get("record")) == norm_ref(c.get("record"))
+                     and norm_ref(o.get("valid_from")) == norm_ref(c.get("valid_from"))
+                     and norm_ref(o.get("valid_to")) == norm_ref(c.get("valid_to"))
+                     and not _conflicts(o, c, IDENTITY)), None)
+        if twin is not None:
+            _fill(twin, c)
+        else:
+            out.append(c)
+    for material in {norm_ref(c.get("material")) for c in out}:   # 2. undated fragments
+        mine = [c for c in out if norm_ref(c.get("material")) == material]
+        targets = [c for c in mine if _dated(c)]
+        for frag in [c for c in mine if not _dated(c)]:
+            fitting = [t for t in targets if not _conflicts(t, frag, IDENTITY)]
+            if not blank(frag.get("record")):
+                same = [t for t in fitting if norm_ref(t.get("record")) == norm_ref(frag.get("record"))]
+                fitting = same or [t for t in fitting if blank(t.get("record"))]
+            linked = [t for t in fitting if _url_linked(t, frag)]
+            if len(fitting) == 1 and (len(targets) == 1 or linked or not blank(frag.get("record"))):
+                chosen = fitting[0]
+            elif len(linked) == 1:
+                chosen = linked[0]
+            else:
+                if targets:
+                    frag["_unmatched"] = (f"fragment of {len(targets)} dated conditions"
+                                          if fitting else "fragment of no dated condition read")
+                continue
+            _fill(chosen, frag)
+            out = [c for c in out if c is not frag]
+        undated = [c for c in out if norm_ref(c.get("material")) == material and not _dated(c)]
+        if not targets and len(undated) > 1 and all(not _conflicts(a, b, IDENTITY) for a in undated for b in undated):
+            # pages of one record whose dates were not read at all: one condition, its validity still open
+            for frag in undated[1:]:
+                _fill(undated[0], frag)
+                out = [c for c in out if c is not frag]
+    return out
 
 
 def merge_condition_fragments(conditions: list[dict]) -> list[dict]:
-    """One condition read on several pages (header with validity / price unit, a separate scales register) arrives as
-    fragments. A fragment without validity dates fills what the material's single dated condition lacks. Without this,
-    the dated header (no scales) won as 'latest valid' and the position went unpriced (run_7732ba545b50b3a5, 01.05).
-    Ambiguous cases (several dated conditions without scales) stay as they are."""
-    def dated(c):
-        return bool(c.get("valid_from") or c.get("valid_to"))
-
-    out = [dict(c) for c in conditions]
-    # the same condition (material + validity) read on several pages: one entry with every field any copy has
-    merged: dict[tuple, dict] = {}
-    for c in out:
-        key = (norm_ref(c.get("material")), str(c.get("valid_from") or ""), str(c.get("valid_to") or ""))
-        if not (c.get("valid_from") or c.get("valid_to")):
-            merged[(key, id(c))] = c          # undated fragments are handled below
-            continue
-        have = merged.setdefault(key, c)
-        if have is not c:
-            for k, v in c.items():
-                if v and not have.get(k):
-                    have[k] = v
-    out = list(merged.values())
-    for material in {norm_ref(c.get("material")) for c in out}:
-        mine = [c for c in out if norm_ref(c.get("material")) == material]
-        fragments = [c for c in mine if not dated(c)]
-        targets = [c for c in mine if dated(c) and any(not c.get(k) for k in FILLABLE)]
-        if not fragments or len(targets) != 1:
-            continue
-        target = targets[0]
-        for frag in fragments:
-            for key in FILLABLE:
-                if not target.get(key) and frag.get(key):
-                    target[key] = frag[key]
-        if target.get("scales"):
-            out = [c for c in out if not any(c is f for f in fragments)]
-    return out
+    """Kept name: see reconcile_conditions."""
+    return reconcile_conditions(conditions)
 
 
 def erp_view(cache: dict, groups=()) -> dict:
     extracted = list(cache.values())
     materials = merge_materials(extracted, groups)
-    conditions = merge_condition_fragments([c for page in extracted for c in page.get("conditions") or []])
+    conditions = reconcile_conditions([dict(c, _url=page.get("url")) for page in extracted
+                                       for c in page.get("conditions") or [] if isinstance(c, dict)])
     stock: dict = {}
     for page in extracted:                 # one row per (material, location); a re-read replaces
         for s in page.get("stock") or []:
