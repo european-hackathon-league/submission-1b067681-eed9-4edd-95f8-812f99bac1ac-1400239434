@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4MKS5JDEW14GPB3J43QV1QH",
+  "strategy": "manual-commit",
+  "branch": "someimprovementsidk",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "agents/analyze_discount.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 32,
+    "cache_creation_tokens": 16838,
+    "cache_read_tokens": 5801964,
+    "output_tokens": 7881,
+    "api_call_count": 15
+  }
+}
