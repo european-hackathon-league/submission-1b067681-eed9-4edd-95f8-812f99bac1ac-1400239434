@@ -65,9 +65,35 @@ class HungTabs(unittest.TestCase):
         self.assertEqual(len(closed), 1)
         self.assertEqual(urls, [base + "/"])             # the working tab is still there, the hung one gone
 
+    def test_closing_the_only_hung_tab_keeps_the_browser_alive(self):
+        from playwright.async_api import async_playwright
 
-if __name__ == "__main__":
-    unittest.main()
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        base, port = f"http://127.0.0.1:{server.server_port}", free_port()
+
+        async def run():
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True, args=[f"--remote-debugging-port={port}"])
+                context = await browser.new_context()
+                for page in context.pages:
+                    await page.close()
+                bad = await context.new_page()
+                await bad.goto(base + "/")
+                await bad.evaluate(f"setTimeout(() => location.href = '{base}/?block', 10)")
+                await asyncio.sleep(1.5)
+                with mock.patch.object(ba.browsers, "cdp_urls", return_value=[f"http://127.0.0.1:{port}"]), \
+                        mock.patch.object(ba, "TAB_PROBE_S", 3):
+                    closed = await ba.close_hung_tabs(0)
+                await asyncio.sleep(1)
+                listed = json.load(urllib.request.urlopen(f"http://127.0.0.1:{port}/json/list", timeout=5))
+                await browser.close()
+                return closed, [t for t in listed if t["type"] == "page"]
+
+        closed, pages = asyncio.run(run())
+        server.shutdown()
+        self.assertEqual(len(closed), 1)
+        self.assertEqual(len(pages), 1)                  # a blank tab took its place: the browser is still there
 
 
 class CdpEndpointRetry(unittest.TestCase):
