@@ -32,6 +32,7 @@ MAX_JOBS = 6             # per planning call
 MAX_JOBS_PER_ROLE = 3
 ANALYSIS_S = 60          # jobs stop this long before collect ends, so the analyses can still run on their pages
 SETTLE_S = 45           # a site whose analysis has not finished this long after its first pass is treated as done
+PLAN_S = 60             # a planning call longer than this is dropped: the gaps become jobs as they are
 
 READY = {"tender": ("done.tender", "tender_final"), "spec": ("done.spec", "requirements_final"),
          "erp": ("done.erp", "materials"), "mail": ("done.mail", "mail_final")}
@@ -108,11 +109,13 @@ def find_gaps(board, ready: set[str], saved_topics: dict[str, list[str]]) -> lis
                 gap("mail", "mail technical release",
                     f"technical release mail with end reserves per stroke end (revision {req.get('revision')}"
                     f"{', key ' + str(req.get('reserve_key')) if req.get('reserve_key') else ''})")
+        m = materials.get(pos) or {}
         for key, value in position_keys(clarifications, pos)["keys"].items():
             section, label = KEY_SECTIONS.get(key, (None, None))
             if section and norm_ref(value) not in {norm_ref(k) for k in (mail.get(section) or {})}:
-                gap("mail", f"mail {section} {norm_ref(value)}", f"{label} mail for key {value}")
-        m = materials.get(pos) or {}
+                article = f" (or by material number {m['material']})" if section == "delivery_commitments" and \
+                    m.get("material") else ""
+                gap("mail", f"mail {section} {norm_ref(value)}", f"{label} mail for key {value}{article}")
         if not m:
             gap("erp", f"erp search {group or ref}", f"Find materials for requirement {ref}: {_attrs(req)}")
             continue
@@ -135,7 +138,7 @@ def find_gaps(board, ready: set[str], saved_topics: dict[str, list[str]]) -> lis
                                                           "read")
             continue
         info = erp_materials.get(norm_ref(mat)) or {}
-        missing = [a for a in m.get("unverified") or []]
+        missing = [a for a in m.get("unverified") or [] if a != "end reserve"]   # that one is the release mail's
         if info.get("lead_time_production_weeks") in (None, ""):
             missing.append("lead times")
         if position_keys(clarifications, pos)["keys"].get("packaging_tariff") and not info.get("pieces_per_carton"):
@@ -165,6 +168,20 @@ def find_gaps(board, ready: set[str], saved_topics: dict[str, list[str]]) -> lis
             gap("mail", f"mail price index {norm_ref(index)}", f"metal price index mail for {index} valid on "
                                                                f"{brief.get('scenario_date')}")
     return list(gaps.values())
+
+
+def direct_jobs(gaps: list[dict]) -> list[dict]:
+    """Jobs straight from the gap texts (at most 3 gaps per job), for when the planning call fails or is too slow."""
+    jobs, per_role = [], {}
+    for g in gaps:
+        per_role.setdefault(g["role"], []).append(g)
+    for role, items in per_role.items():
+        for i in range(0, min(len(items), 3 * MAX_JOBS_PER_ROLE), 3):
+            chunk = items[i:i + 3]
+            jobs.append({"role": role, "gaps": [g["id"] for g in chunk],
+                         "job": "Find and read_page (topic naming the identifier): " +
+                                "; ".join(g["need"] for g in chunk) + ". Then done."})
+    return jobs[:MAX_JOBS]
 
 
 async def refresh(ctx, roles: set[str]) -> None:
@@ -280,10 +297,11 @@ class CollectionCoordinator(Agent):
                     if gaps:
                         self.log.info("gaps: %s", [g["id"] for g in gaps])
                         try:
-                            jobs = await self.plan(gaps)
-                        except Exception as error:
-                            self.log.warning("planning failed: %s", error)
-                            jobs = []
+                            jobs = await asyncio.wait_for(self.plan(gaps), PLAN_S)
+                        except (Exception, asyncio.TimeoutError) as error:
+                            self.log.warning("planning failed (%s): jobs straight from the gaps",
+                                             type(error).__name__)
+                            jobs = direct_jobs(gaps)
                         for job in jobs:
                             for gid in job["gaps"]:
                                 self.attempts[gid] = self.attempts.get(gid, 0) + 1

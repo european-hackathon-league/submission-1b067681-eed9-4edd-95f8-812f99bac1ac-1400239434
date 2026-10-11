@@ -270,6 +270,18 @@ def check(m: dict, req: dict, stroke: Decimal | None, min_known: int = MIN_KNOWN
     return unverified
 
 
+def reserve_fallback(cands: list[dict], req: dict, stroke: Decimal | None) -> dict | None:
+    """For a usable-travel requirement whose reserve is unknown: the ONLY active candidate, otherwise verified, whose
+    nominal stroke lies above the usable travel (equal = no reserve). Several such candidates: no guess, since the
+    reserve decides between them."""
+    usable = num(req.get("stroke"))
+    if stroke is not None or req.get("stroke_kind") != "usable" or usable is None:
+        return None
+    fits = [c for c in cands if c["active"] is True and c["unverified"] == ["stroke"]
+            and num(c["stroke"]) is not None and num(c["stroke"]) > usable]
+    return fits[0] if len(fits) == 1 else None
+
+
 def match_positions(tender: dict, requirements: dict, materials: dict, mail: dict, current: str,
                     priced=frozenset()) -> dict:
     """`priced`: normalised numbers of materials with a price condition read (preferred among equal candidates)."""
@@ -309,6 +321,11 @@ def match_positions(tender: dict, requirements: dict, materials: dict, mail: dic
                       + ("" if best["active"] else ", status not read"))
             out[pos] = {"material": best["material"], "required": required, "candidates": cands, "reason": reason,
                         "unverified": best["unverified"] + ([] if best["active"] else ["status"])}
+        elif fallback := reserve_fallback(cands, req, stroke):
+            # Usable travel whose end reserve is unread (no technical release found), one candidate fits anyway.
+            out[pos] = {"material": fallback["material"], "required": required, "candidates": cands,
+                        "reason": "usable travel, end reserve not read: the only active stroke above it",
+                        "unverified": ["end reserve"]}
         else:
             out[pos] = {"material": None, "required": required, "candidates": cands, "unverified": [],
                         "reason": "only blocked matches" if cands and all(c["active"] is False and not c["unverified"] for c in cands) else "no verified active exact match among the ERP records read"}

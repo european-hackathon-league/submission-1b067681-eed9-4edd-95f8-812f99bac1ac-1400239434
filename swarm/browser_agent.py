@@ -58,6 +58,30 @@ async def _no_loading_animation(self, target_id, browser_session_label) -> None:
 
 AboutBlankWatchdog._show_dvd_screensaver_loading_animation_cdp = _no_loading_animation
 
+
+def _stop_torn_down_bus() -> None:
+    """bubus 1.5: EventBus._run_loop calls step() while _is_running and logs + retries every error. Once a session's bus
+    is torn down (its queue gone, e.g. after its browser died) step() fails its first assert before awaiting anything,
+    so the loop spins without ever yielding and freezes the whole event loop: no log line, no model call, no timeout
+    (runs 9dff and 6965: 1139 'must be called before step()' errors, then silence). Such a bus now stops instead."""
+    from bubus.service import EventBus
+    original = EventBus.step
+    if getattr(original, "_stops_torn_down_bus", False):
+        return
+
+    async def step(self, *args, **kwargs):
+        if not (self._on_idle and self.event_queue):
+            self._is_running = False
+            await asyncio.sleep(0)
+            return None
+        return await original(self, *args, **kwargs)
+
+    step._stops_torn_down_bus = True
+    EventBus.step = step
+
+
+_stop_torn_down_bus()
+
 import browsers  # noqa: E402
 import models  # noqa: E402
 from swarm.context import SUBMIT_RESERVE_S  # noqa: E402
@@ -256,9 +280,16 @@ async def _browser_ws(cdp_url: str) -> str:
     parts = urlparse(cdp_url)
     path = parts.path.rstrip("/")
     path = path if path.endswith("/json/version") else path + "/json/version"
-    async with httpx.AsyncClient(timeout=30) as client:
-        reply = await client.get(urlunparse((parts.scheme, parts.netloc, path, "", "", "")))
-        return reply.json()["webSocketDebuggerUrl"]
+    url = urlunparse((parts.scheme, parts.netloc, path, "", "", ""))
+    for wait in (2, 5, 0):       # the endpoint drops a request now and then (e.g. while a hung tab is closed)
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                return (await client.get(url)).json()["webSocketDebuggerUrl"]
+        except httpx.TransportError:
+            if not wait:
+                raise
+            log.warning("CDP endpoint %s did not answer; retrying in %ss", url, wait)
+            await asyncio.sleep(wait)
 
 
 async def _with_cdp(browser: int, call):

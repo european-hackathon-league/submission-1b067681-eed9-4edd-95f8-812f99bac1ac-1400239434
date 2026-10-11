@@ -57,20 +57,29 @@ def _domain(addr) -> str:
     return value.strip().lower().rpartition("@")[2] if "@" in value else ""
 
 
+def rejection(m: dict, ref: str, scenario: datetime | None, senders: dict, domain: str) -> str | None:
+    """Why a message does not count (None: it counts)."""
+    if m.get("is_draft") in (True, "true"):
+        return "draft"
+    if not ref or norm_ref(m.get("reference")) != norm_ref(ref):
+        return "reference"
+    want = _local(senders.get(m.get("topic"), ""))
+    if not want:
+        return "no authorised sender for topic"
+    if _local(m.get("sender")) != want:
+        return "sender"
+    if not domain or _domain(m.get("sender")) != domain:
+        return "domain"
+    date = to_datetime(m.get("date"))
+    if scenario is None or date is None:
+        return "date unreadable"
+    if date > scenario:
+        return "after scenario date"
+    return None
+
+
 def valid_messages(messages: list[dict], ref: str, scenario: datetime | None, senders: dict, domain: str) -> list[dict]:
-    out = []
-    for m in messages:
-        if m.get("is_draft") in (True, "true") or norm_ref(m.get("reference")) != norm_ref(ref):
-            continue
-        want = _local(senders.get(m.get("topic"), ""))
-        if not want or _local(m.get("sender")) != want:
-            continue
-        if not domain or _domain(m.get("sender")) != domain:
-            continue
-        date = to_datetime(m.get("date"))
-        if not ref or scenario is None or date is None or date > scenario:
-            continue
-        out.append(m)
+    out = [m for m in messages if rejection(m, ref, scenario, senders, domain) is None]
     return sorted(out, key=lambda m: to_datetime(m.get("date")) or EPOCH)
 
 
@@ -110,7 +119,9 @@ def summarise(messages: list[dict], scenario: datetime | None) -> dict:
     for currency, rates in currencies.items():
         if len(set(rates)) == 1:
             mail["fx_fixing"][currency] = rates[0]
-    index_messages = [m for m in messages if m.get("topic") == "price_indices"]
+    # a record without rates (e.g. a result-list row read as a message) is no replacement of the rates
+    index_messages = [m for m in messages if m.get("topic") == "price_indices"
+                      and any(e.get("index") for e in m.get("entries") or [])]
     # Pick the governing message first; never resurrect an older rate outside its replacement's windows.
     if index_messages:
         for e in index_messages[-1].get("entries") or []:
@@ -183,6 +194,9 @@ async def publish(ctx) -> list[dict]:
     await ctx.board.set("discount", discount)
     await ctx.board.set("mail", summarise(valid, scenario))
     log.info("discount %s; %d/%d valid messages", discount, len(valid), len(unique))
+    ctx.shared["mail.rejected"] = [(m.get("topic"), _local(m.get("sender")), m.get("reference"), m.get("date"),
+                                    len(m.get("entries") or []), rejection(m, ref, scenario, senders, domain))
+                                   for m in unique.values() if rejection(m, ref, scenario, senders, domain)]
     return valid
 
 
@@ -204,6 +218,9 @@ class DiscountAnalyzer(Agent):
                 await refresh(self.ctx)
                 seen = count
             if self.ctx.board.get("done.mail") is not None:
+                await refresh(self.ctx)             # pages saved while the last extraction ran
                 await self.ctx.board.set("mail_final", True)
+                # (topic, sender, reference, date, entries, reason) of every message that does not count
+                self.log.info("mail not counted: %s", self.ctx.shared.get("mail.rejected"))
                 return
             await asyncio.sleep(2)
