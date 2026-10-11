@@ -43,6 +43,7 @@ rewritten for it (`tests/test_submit_bid.py`, same intents).
 | Tokens/cost per agent in every run log (RUNSTATS) | only on tanreader-debug | `swarm/orchestrator.py` |
 | Unused modules (`bidmath`, `formpilot`, `decide`, `sites.py`, `tender_model.py`) | kept and tested; runtime does not call them | delete or adopt |
 | Recovery closing other agents' tabs | **Fixed**: `close_hung_tabs` skips tabs another browse is using (`_ACTIVE`); tested on real Chromium. | `swarm/browser_agent.py` |
+| Closing a browser's last tab | **Fixed on `kurk-s/mail-topics` (7ce72d6, waiting for integration)**: runs run_69653d1986f86a10 and run_07039cb7f5a2a7f5 lost the mail browser for the whole run: its only tab hung at the first navigation, `close_hung_tabs` closed it, Chromium shut down ('No tabs remain!', CDP endpoint dead) and mail ran in browser 0. `close_hung_tabs` now opens a blank tab first; real-Chromium test (old code: 0 pages left). Branch already contains main 169cf8a (clean fast-forward). | `swarm/browser_agent.py` |
 | Fixed 600 s submit reserve | Now estimated live from positions and measured step pace, [390, 600] s, calibrated on sandbox signings (run_7a11d3a90d55e1ce: accepted 15:40, 260 s to spare). | `swarm/context.py` |
 | Sandbox CPU vs ERP tabs | 6 tabs beat 4 in an A/B (17 vs 12 ERP jobs, 4 vs 1 positions priced, fewer failed browses); one run per arm. | `agents/scrape_erp.py` |
 | Condition fragments of different records merged | **Fixed**: `reconcile_conditions` (record ids, linked pages, conflicts kept apart). | `agents/analyze_materials.py` |

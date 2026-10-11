@@ -473,6 +473,14 @@ async def close_hung_tabs(browser: int, keep: str | None = None, mine: "Tab | No
                 return True
 
         verdicts = await asyncio.gather(*(hung(t) for t in pages))
+        alive = sum(1 for t in targets if t.get("type") == "page") - sum(verdicts)
+        if alive <= 0 and any(verdicts):
+            # Closing a browser's last page shuts Chromium down (runs 6965, 0703: the mail browser's only tab hung at
+            # its first navigation, was closed, and the browser was gone for the rest of the run). Open a blank one.
+            try:
+                await asyncio.wait_for(client.send.Target.createTarget(params={"url": "about:blank"}), 5)
+            except Exception:  # noqa: BLE001
+                return []
         closed: list[str] = []
         for target, is_hung in zip(pages, verdicts):
             if is_hung:
