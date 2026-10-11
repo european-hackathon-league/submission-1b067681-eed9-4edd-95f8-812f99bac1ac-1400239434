@@ -87,7 +87,7 @@ import models  # noqa: E402
 from swarm import timeline  # noqa: E402
 from swarm.llm import CALL_TIMEOUT_S, HTTP_TIMEOUT  # noqa: E402
 from swarm.guard import PopupGuard  # noqa: E402
-from swarm.page_text import EXTRACT_JS, FRAME_MISSING, LOAD_FRAMES_JS, NEXT_JS, clean  # noqa: E402
+from swarm.page_text import EXTRACT_JS, FRAME_MISSING, FRAME_URL, LOAD_FRAMES_JS, NEXT_JS, clean  # noqa: E402
 
 log = logging.getLogger("browse")
 
@@ -1146,6 +1146,30 @@ def build_tools(ctx, site_id: str, author: str, emit, dedupe_reads: bool = True,
         return ActionResult(extracted_content=f"recorded {params.kind}", is_done=finished,
                             success=True if finished else None)
 
+    async def with_frames(text: str, url: str, browser_session: BrowserSession) -> str:
+        """Frames the page cannot see into (sandboxed reading panes) are read on their own URL in this tab, then the
+        tab returns: a sandbox mail's message text was never saved (the agent did not open the frame URL itself)."""
+        frames = [f for f in dict.fromkeys(FRAME_URL.findall(text)) if _same_site(f, url, ctx.task if ctx else {})][:3]
+        if not frames:
+            return text
+        try:
+            for frame in frames:
+                full = _same_site(frame, url, ctx.task if ctx else {})
+                await browser_session.navigate_to(full)
+                await asyncio.sleep(0.8)
+                inner = await read_current_page(browser_session)
+                text = text.replace(f'{FRAME_MISSING}; open it directly with read_page(url="{frame}"))',
+                                    f"(frame read on its own page {full})\n{inner}", 1)
+        except Exception as error:
+            log.debug("frame page read failed: %s", error)
+        finally:
+            try:
+                await browser_session.navigate_to(url)
+                await asyncio.sleep(0.5)
+            except Exception:
+                pass
+        return text
+
     async def read_one(target: str | None, params: ReadParams, browser_session: BrowserSession) -> tuple[str, str, int]:
         if target:
             await browser_session.navigate_to(target)
@@ -1166,7 +1190,7 @@ def build_tools(ctx, site_id: str, author: str, emit, dedupe_reads: bool = True,
                 reads[url] = {"text": "\n\n----- next page -----\n\n".join(pages),
                               "author": author, "topic": params.topic, "pages": len(pages), "complete": False}
 
-        await keep(await read_current_page(browser_session))
+        await keep(await with_frames(await read_current_page(browser_session), url, browser_session))
         complete = not params.next_page_link
         if params.next_page_link:
             for _ in range(page_limit - 1):

@@ -81,6 +81,7 @@ LOAD_FRAMES_JS = r"""async () => {
 }"""
 
 FRAME_MISSING = "(frame not loaded or not readable"
+FRAME_URL = re.compile(re.escape(FRAME_MISSING) + r'; open it directly with read_page\(url="([^"]+)"\)\)')
 
 NEXT_JS = r"""(label) => {
   const norm = s => (s || '').replace(/[​-‍⁠﻿]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
