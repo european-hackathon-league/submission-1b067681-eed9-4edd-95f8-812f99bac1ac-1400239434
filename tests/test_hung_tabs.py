@@ -90,3 +90,15 @@ class CdpEndpointRetry(unittest.TestCase):
             ws = asyncio.run(ba._browser_ws("http://127.0.0.1:9222"))
         self.assertEqual(ws, "ws://x/devtools/browser/1")
         self.assertEqual(len(calls), 2)
+
+
+class TornDownEventBus(unittest.TestCase):
+    def test_a_torn_down_bus_stops_instead_of_spinning(self):
+        from bubus.service import EventBus
+
+        async def run():
+            bus = EventBus()
+            bus._is_running, bus._on_idle = True, None      # what a torn-down session's bus looks like
+            await asyncio.wait_for(bus._run_loop(), 2)       # unpatched: spins forever, this timeout never fires
+            return bus._is_running
+        self.assertFalse(asyncio.run(run()))

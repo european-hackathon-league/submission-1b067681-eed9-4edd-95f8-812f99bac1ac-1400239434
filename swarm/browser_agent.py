@@ -58,6 +58,30 @@ async def _no_loading_animation(self, target_id, browser_session_label) -> None:
 
 AboutBlankWatchdog._show_dvd_screensaver_loading_animation_cdp = _no_loading_animation
 
+
+def _stop_torn_down_bus() -> None:
+    """bubus 1.5: EventBus._run_loop calls step() while _is_running and logs + retries every error. Once a session's bus
+    is torn down (its queue gone, e.g. after its browser died) step() fails its first assert before awaiting anything,
+    so the loop spins without ever yielding and freezes the whole event loop: no log line, no model call, no timeout
+    (runs 9dff and 6965: 1139 'must be called before step()' errors, then silence). Such a bus now stops instead."""
+    from bubus.service import EventBus
+    original = EventBus.step
+    if getattr(original, "_stops_torn_down_bus", False):
+        return
+
+    async def step(self, *args, **kwargs):
+        if not (self._on_idle and self.event_queue):
+            self._is_running = False
+            await asyncio.sleep(0)
+            return None
+        return await original(self, *args, **kwargs)
+
+    step._stops_torn_down_bus = True
+    EventBus.step = step
+
+
+_stop_torn_down_bus()
+
 import browsers  # noqa: E402
 import models  # noqa: E402
 from swarm.context import SUBMIT_RESERVE_S  # noqa: E402
