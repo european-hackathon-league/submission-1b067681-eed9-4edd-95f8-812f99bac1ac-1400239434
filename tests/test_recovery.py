@@ -78,6 +78,30 @@ class RenewInPlace(unittest.TestCase):
         self.assertNotIn("dead-target", ba._OWNERS)
         ba._MAIN_TABS.pop(3, None)
 
+    def test_second_hang_on_a_browser_moves_the_work_to_another(self):
+        tab = ba.Tab(0)
+        ba._HUNG_AT.clear()
+
+        async def responds(browser, timeout=12):
+            return True
+
+        async def hung(browser, keep=None, mine=None):
+            return [mine.target_id] if mine and mine.target_id else []
+        with mock.patch.object(ba.browsers, "cdp_urls", return_value=["a", "b", "c", "d"]), \
+                mock.patch.object(ba, "browser_responds", responds), mock.patch.object(ba, "close_hung_tabs", hung):
+            tab.claim("first")
+            tab.suspect = True
+            self.assertIs(asyncio.run(ba.responsive_tab(tab)), tab)          # first hang: renewed in place
+            tab.claim("second")
+            tab.suspect = True
+            moved = asyncio.run(ba.responsive_tab(tab))                       # second hang: another browser
+        self.assertIsNot(moved, tab)
+        self.assertNotEqual(moved.browser, 0)
+        self.assertIs(tab.replacement, moved)
+        ba._HUNG_AT.clear()
+        for t in ("first", "second"):
+            ba._OWNERS.pop(t, None)
+
     def test_healthy_recently_checked_browser_is_not_probed_again(self):
         calls = []
 

@@ -36,8 +36,10 @@ from swarm.scraper import SiteScraper
 from swarm.sites import site_for
 
 ANALYSIS_TIME_S = 60    # what the material matcher needs after the last ERP page
-ERP_TABS = int(os.environ.get("SWARM_ERP_TABS", "4"))   # parallel ERP jobs (main tab included); was 8: the 4-vCPU
-#   sandbox stalled every browser at once (state capture timeouts), locally the same run did not
+# parallel ERP jobs (main tab included). 8 once stalled every sandbox browser at once; A/B on 2026-10-11 (same code):
+# 6 tabs 17 ERP jobs / 4 positions priced / 10 failed browses (run_1efbfc7e6d2895e0) vs 4 tabs 12 / 1 / 16
+# (run_db181692d8232b97); 4 tabs in run_7a11d3a90d55e1ce: 15 / 3. ERP throughput is the collection bottleneck.
+ERP_TABS = int(os.environ.get("SWARM_ERP_TABS", "6"))
 
 HINTS = ("Adapt to the observed software; these are possible patterns, not requirements. ERP habits: SAP-style transaction codes (start page / menu lists transactions for material display, stock "
          "overview, price conditions); system notice or access gate after login (copy displayed number exactly - "

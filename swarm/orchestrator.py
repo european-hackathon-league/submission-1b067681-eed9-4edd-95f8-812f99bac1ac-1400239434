@@ -149,11 +149,10 @@ async def run_swarm(task: dict, playwright, scored: bool, env=os.environ):
     ctx = Context(task=task, board=board, llm=LLM(), pool=BrowserPool(playwright), scored=scored)
     tl = timeline.reset(ctx.monotonic_start)
     classes = select(discover(), None if scored else env.get("SWARM_ONLY"))
-    from swarm.browser_agent import _MAIN_TABS, _OWNERS, _OPENERS
+    from swarm.browser_agent import _CHECKED, _HUNG_AT, _MAIN_TABS, _OWNERS, _OPENERS
     from swarm import guard
-    _MAIN_TABS.clear()
-    _OWNERS.clear()
-    _OPENERS.clear()
+    for state in (_MAIN_TABS, _OWNERS, _OPENERS, _CHECKED, _HUNG_AT):
+        state.clear()
     guard._DECISIONS.clear()
     guard._PENDING.clear()
     log.info("agents: %s", [c.__name__ for c in classes])

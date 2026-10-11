@@ -24,10 +24,10 @@ FINAL_MARGIN_S = 40
 # flash steps measured during collection. TAN lookup runs next to the wizard and costs extra time only at the end.
 # run_7b060fa870cea9b6: an entered position took 3 steps (one 6: cascading selects), an omitted one 1 step
 BASE_STEPS, STEPS_PER_POSITION, PREP_SAVES_STEPS = 12, 3, 4
-FULL_REASONING_FACTOR, TAN_S, SAFETY_S = 1.5, 60, 45
-# Collection steps (logins, clicks) are much faster than the submitter's full-reasoning steps: run_7732ba545b50b3a5
-# signed 4 positions in 466 s, ~21 s per estimated step. A submitter step is never assumed faster than this.
-MIN_SUBMIT_STEP_S = float(os.environ.get("SWARM_MIN_SUBMIT_STEP_S", 18))
+# Measured submitter pace vs collection pace: run_56cfdff4ff83d569 36 steps / 470 s (13 s), run_7a11d3a90d55e1ce
+# 26 steps / 316 s (12 s, collection median ~11-12 s at the time): full-reasoning steps are only slightly slower.
+FULL_REASONING_FACTOR, TAN_S, SAFETY_S = 1.15, 60, 45
+MIN_SUBMIT_STEP_S = float(os.environ.get("SWARM_MIN_SUBMIT_STEP_S", 13))   # a submitter step is never assumed faster
 # A scored run lasts 20 minutes; test runs may last 2 hours. Every run plans with at most RUN_LIMIT_S from process
 # start, so test runs show the timing (and the follow-ups that fit) of a scored run. The run's real expiry still wins
 # when it is earlier.

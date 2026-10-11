@@ -384,6 +384,8 @@ TAB_PROBE_S = 8          # a page that cannot evaluate `1` within this long is h
 CHECK_EVERY_S = 20       # a browser whose tabs were checked this recently is not checked again for a healthy tab
 
 _ACTIVE: set["Tab"] = set()            # tabs with a browse() running right now
+_HUNG_AT: dict[int, list[float]] = {}  # browser index -> when a tab of it was closed as hung
+REPEAT_HANG_S = 300                    # a second hang within this long moves the work to another browser
 _CHECKED: dict[int, float] = {}        # browser index -> time.monotonic() of its last clean hung-tab check
 
 
@@ -458,8 +460,22 @@ async def responsive_tab(tab: "Tab") -> "Tab":
             else:
                 _CHECKED[tab.browser] = time.monotonic()
             if tab.target_id and tab.target_id in closed:
-                log.warning("browser %d: this agent's tab was hung and closed; continuing in a new tab", tab.browser)
+                now = time.monotonic()
+                recent = [t for t in _HUNG_AT.get(tab.browser, []) if now - t < REPEAT_HANG_S]
+                _HUNG_AT[tab.browser] = recent + [now]
                 timeline.count("tabs.replaced")
+                if recent:            # hung again on this browser (run_db181692d8232b97: twice while signing)
+                    others = [(len([t for t in _HUNG_AT.get(b, []) if now - t < REPEAT_HANG_S]), b)
+                              for b in range(len(urls)) if b != tab.browser]
+                    for _, other in sorted(others):
+                        if await browser_responds(other):
+                            log.warning("browser %d hung again: continuing in a new tab of browser %d",
+                                        tab.browser, other)
+                            timeline.count("tabs.moved_browser")
+                            tab.renew()
+                            tab.replacement = Tab(other)      # closed together with `tab` by its owner
+                            return tab.replacement
+                log.warning("browser %d: this agent's tab was hung and closed; continuing in a new tab", tab.browser)
                 tab.renew()           # same Tab object: its owner still closes it, and a main tab stays the main tab
             tab.suspect = False
             return tab
