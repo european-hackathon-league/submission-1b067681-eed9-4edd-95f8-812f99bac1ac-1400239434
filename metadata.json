@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4MQNQ189J6JR41Z30ECQWMW",
+  "strategy": "manual-commit",
+  "branch": "first_100",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "swarm/lean.py",
+    "tests/test_lean_select.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 18,
+    "cache_creation_tokens": 10228,
+    "cache_read_tokens": 3049334,
+    "output_tokens": 4570,
+    "api_call_count": 9
+  }
+}
