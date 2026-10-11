@@ -138,7 +138,7 @@ def find_gaps(board, ready: set[str], saved_topics: dict[str, list[str]]) -> lis
                                                           "read")
             continue
         info = erp_materials.get(norm_ref(mat)) or {}
-        missing = [a for a in m.get("unverified") or []]
+        missing = [a for a in m.get("unverified") or [] if a != "end reserve"]   # that one is the release mail's
         if info.get("lead_time_production_weeks") in (None, ""):
             missing.append("lead times")
         if position_keys(clarifications, pos)["keys"].get("packaging_tariff") and not info.get("pieces_per_carton"):

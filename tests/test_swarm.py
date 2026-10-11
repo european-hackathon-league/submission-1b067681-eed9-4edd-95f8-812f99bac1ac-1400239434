@@ -292,8 +292,8 @@ class MailTopics(unittest.TestCase):
                  "topic_words": {"packaging_tariffs": "Verpackung", "fx_fixing": "Devisen"}}
         jobs = scraper.topic_jobs(facts, {"discount_approval"})
         self.assertEqual(len(jobs), 2)
-        self.assertIn("Verpackung", jobs[0])
-        self.assertIn("Devisen", jobs[1])
+        self.assertEqual(sum("Verpackung" in j for j in jobs), 1)
+        self.assertEqual(sum("Devisen" in j for j in jobs), 1)
 
     def test_discount_first_and_delivery_last_with_its_identifiers(self):
         from types import SimpleNamespace as NS
@@ -303,6 +303,10 @@ class MailTopics(unittest.TestCase):
                                                                    "price_indices": "einkauf"}}
         topics, senders, words = scraper.topics(facts)
         self.assertEqual(topics, ["discount_approval", "price_indices", "delivery_commitments"])
+        topics, _, _ = scraper.topics({"authorized_senders": {"x_unknown": "a", "delivery_commitments": "b",
+                                                              "fx_fixing": "c", "technical_release": "d"}})
+        self.assertEqual(topics, ["discount_approval", "technical_release", "fx_fixing", "x_unknown",
+                                  "delivery_commitments"])
         job = scraper.topic_job("delivery_commitments", words, senders, ["D-1"], ["M-9"])
         self.assertIn("D-1", job)
         self.assertIn("M-9", job)

@@ -4,8 +4,9 @@
 Every message is read once:
 1. The main tab logs in while the brief is being read.
 2. Topic searches start at once, in parallel lanes (main tab + SWARM_MAIL_TABS tabs; each tab logs in: this webmail
-   keeps its login per tab): one search per topic the brief names ('<reference> <topic word>'), discount approval
-   first. A search for the exact reference alone lists every message and needs many result pages, so it only runs
+   keeps its login per tab): one search per topic the brief names ('<reference> <topic word>'), the topics that
+   decide most of the bid first (TOPIC_PRIORITY); a search that ends unfinished gets one more try at the end of its
+   lane. A search for the exact reference alone lists every message and needs many result pages, so it only runs
    last, as a catch-all for what the topic searches missed. Before each job, topics that already have a valid message
    are skipped; delivery commitments only count as covered when every delivery key of the Q&A has its mail, and their
    job names the delivery keys and material numbers known by then (a webmail may find them only by article number).
@@ -32,7 +33,9 @@ SEARCH_RULES = (
     "suffix) and other tenders do not count; drafts, previews, superseded mails look similar: read each candidate "
     "message. Read selected messages with ONE read_page(urls=[their links], topic '<topic> mail') (read_page also "
     "reads collapsed or locked parts, no need to unlock). Reading pane shows no message text -> use message's own "
-    "page link. Skip signing-TAN mails.")
+    "page link. Result rows without a visible link: click the subject once, then read_page the opened message "
+    "(its own page link if it opens in a frame); do not search the page for links more than once. "
+    "Skip signing-TAN mails.")
 
 INDEX_JOB = (
     "Catch-all: search the exact tender reference ALONE (no other word), first inbox then archive. read_page each "
@@ -42,6 +45,10 @@ INDEX_JOB = (
     "look-alike suffixes, other tenders and signing TANs. Then done, listing subjects read.\n" + SEARCH_RULES)
 
 DELIVERY = "delivery_commitments"
+# What a missing mail costs the bid, most first: the discount and the technical release (end reserves decide which
+# material fits a usable-travel requirement) gate whole positions; price indices, FX and packaging enter every price.
+TOPIC_PRIORITY = ["discount_approval", "technical_release", "price_indices", "fx_fixing", "packaging_tariffs",
+                  "condition_rules", "project_bonus", "setup_pools", DELIVERY]
 
 
 def delivery_ids(board) -> tuple[list[str], list[str]]:
@@ -66,7 +73,7 @@ class MailScraper(SiteScraper):
              "(sender, date) in collapsed 'envelope/headers' section, which read_page includes.")
 
     async def browse(self, job: str, **kwargs):
-        kwargs.setdefault("stop_reserve", SUBMIT_RESERVE_S + 150)
+        kwargs.setdefault("stop_reserve", SUBMIT_RESERVE_S + 90)    # the mail analyst needs the last pages too
         return await super().browse(job, **kwargs)
 
     async def login(self) -> None:
@@ -83,10 +90,11 @@ class MailScraper(SiteScraper):
         words = dict(facts.get("topic_words") or {})
         words.setdefault("discount_approval", facts.get("discount_topic") or "Rabatt")
         topics = [t for t in dict.fromkeys([*senders, *words]) if t != "signing_tan"]
-        topics.sort(key=lambda t: (t != "discount_approval", t == DELIVERY))
+        rank = {t: i for i, t in enumerate(TOPIC_PRIORITY)}
+        topics.sort(key=lambda t: rank.get(t, rank[DELIVERY] - 0.5))     # unknown topics before delivery
         return topics, senders, words
 
-    def topic_job(self, topic: str, words: dict, senders: dict, keys=(), materials=()) -> str:
+    def topic_job(self, topic: str, words: dict, senders: dict, keys=(), materials=(), reserve_keys=()) -> str:
         word = words.get(topic) or topic.replace("_", " ")
         sender = senders.get(topic)
         job = (f"Find mails on topic '{word}' ({topic.replace('_', ' ')}) for this tender"
@@ -96,6 +104,8 @@ class MailScraper(SiteScraper):
             job += (f" Commitments are per delivery key / article: keys {list(keys)}, material numbers "
                     f"{list(materials)}. If the search hint or the results ask for another identifier, or a key has "
                     f"no hit, search '<reference> <material number>' (or the key) for each one still missing.")
+        if topic == "technical_release" and reserve_keys:
+            job += f" The specification refers to release / reserve keys {list(reserve_keys)}."
         return f"{job}\n{SEARCH_RULES}\nThen done."
 
     def covered(self, valid: list[dict]) -> set[str]:
@@ -115,18 +125,28 @@ class MailScraper(SiteScraper):
     async def lane(self, topics: list[str], facts: dict, tab=None, first=None) -> None:
         """Search `topics` one after another in one tab, skipping those covered by then."""
         _, senders, words = self.topics(facts)
-        for topic in topics:
+        queue, retried = list(topics), set()
+        while queue:
+            topic = queue.pop(0)
             if self.ctx.time_left() <= 60:
                 return
             if topic not in self.covered(await publish(self.ctx)):
                 keys, materials = delivery_ids(self.ctx.board) if topic == DELIVERY else ((), ())
+                reserve_keys = [r.get("reserve_key") for r in (self.ctx.board.get("requirements") or {}).values()
+                                if isinstance(r, dict) and r.get("reserve_key")]
+                out = {"done": False}
                 try:
-                    await self.browse_until_done(self.topic_job(topic, words, senders, keys, materials), attempts=1,
-                                                 max_steps=12, tab=tab)
+                    out = await self.browse_until_done(
+                        self.topic_job(topic, words, senders, keys, materials, list(dict.fromkeys(reserve_keys))),
+                        attempts=1, max_steps=12, tab=tab)
                 except Exception as error:      # one failed search must not end the other topics
                     self.ctx.board.error(self.name, f"mail search {topic} failed: {type(error).__name__}: {error}")
+                if not out.get("done") and topic not in retried:
+                    retried.add(topic)
+                    queue.append(topic)         # covered by then (other lane, later extraction) -> skipped above
             if first and topic == topics[0]:
                 await first()
+                first = None
 
     async def run(self) -> None:
         try:

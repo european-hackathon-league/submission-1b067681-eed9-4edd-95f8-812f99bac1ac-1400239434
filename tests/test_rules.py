@@ -252,6 +252,19 @@ class Matching(unittest.TestCase):
         reqs["Z"]["reserve_key"] = "K"
         self.assertEqual(match_positions(tender, reqs, mats, mail, "R")["1"]["material"], "L")
 
+    def test_usable_travel_without_reserve_takes_the_only_stroke_above_it(self):
+        tender = {"positions": [{"position": "1", "requirement_ref": "Z"}]}
+        reqs = {"Z": {"bore": "50", "stroke": "300", "stroke_kind": "usable", "pressure": "160", "mounting": "F",
+                      "certification": "keine", "kataloggruppe": "G"}}
+        base = {"bore": "50", "pressure": "160", "mounting": "F", "certification": "keine", "kataloggruppe": "G",
+                "is_active": True}
+        mats = {"E": {"material": "E", "stroke": "300", **base}, "L": {"material": "L", "stroke": "360", **base},
+                "B": {"material": "B", "stroke": "340", **base, "is_active": False}}
+        out = match_positions(tender, reqs, mats, {}, "")["1"]
+        self.assertEqual((out["material"], out["unverified"]), ("L", ["end reserve"]))
+        mats["M"] = {"material": "M", "stroke": "320", **base}       # two fit: the reserve decides, no guess
+        self.assertIsNone(match_positions(tender, reqs, mats, {}, "")["1"]["material"])
+
     def test_record_status_beats_list_and_disagreement_is_unknown(self):
         from agents.analyze_materials import merge_materials
         rows = lambda *r: [dict(material="A", **x) for x in r]  # noqa: E731
