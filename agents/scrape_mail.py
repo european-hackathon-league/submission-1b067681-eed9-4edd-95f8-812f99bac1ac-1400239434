@@ -45,9 +45,11 @@ INDEX_JOB = (
     "look-alike suffixes, other tenders and signing TANs. Then done, listing subjects read.\n" + SEARCH_RULES)
 
 DELIVERY = "delivery_commitments"
-# What a missing mail costs the bid, most first: the discount and the technical release (end reserves decide which
-# material fits a usable-travel requirement) gate whole positions; price indices, FX and packaging enter every price.
-TOPIC_PRIORITY = ["discount_approval", "technical_release", "price_indices", "fx_fixing", "packaging_tariffs",
+# What a missing mail costs the bid, most first: the discount, the technical release (end reserves decide which
+# material fits a usable-travel requirement) and FX (a price in another currency cannot be bid without it) gate whole
+# positions; price indices and packaging enter every price. Lanes take topics round-robin, so the first three each
+# start a lane.
+TOPIC_PRIORITY = ["discount_approval", "technical_release", "fx_fixing", "price_indices", "packaging_tariffs",
                   "condition_rules", "project_bonus", "setup_pools", DELIVERY]
 
 
