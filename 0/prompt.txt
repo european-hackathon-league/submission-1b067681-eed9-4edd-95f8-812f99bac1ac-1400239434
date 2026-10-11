@@ -1,0 +1,78 @@
+<pasted_content id="21ab">
+You are the lead integration engineer for this repository (Atira EHL "RFQ to bid" agent, Python 3.12 + uv, swarm in swarm/ and agents/). Read CLAUDE.md, AGENTS.md, docs/COLLABORATION.md, docs/INTEGRATION.md, docs/SWARM.md first and follow them (scripts/team.py status --json, tests/test_contracts.py, commit from PowerShell, never push entire/* or .swarm/ or .integration/).
+
+GOAL
+Create branch `first_100` from `origin/lean/browse` (the first branch that reached quality 100 on the public dataset; it is the proven baseline and must stay at quality 100). Then make `first_100` better, without regressing it, by:
+  1. finding what does NOT work properly or is weak in `main`'s line of work (and in lean/browse itself): failures, wasted time, step exhaustion, flaky parts, rules in the brief that are not covered, robustness gaps for the PRIVATE dataset (different layouts/names/data);
+  2. finding which of those problems another branch already solves, or which improvements it contains that lean/browse lacks;
+  3. porting exactly those improvements into `first_100`, one small commit each, tested.
+
+ACTIVE LINES OF WORK (inspect all; verify with `git fetch --all --prune` and `git rev-list --left-right --count origin/main...<branch>`; ignore stale ones after checking they add nothing)
+  - origin/main (shared baseline; currently BEHIND several branches)
+  - origin/lean/browse (quality 100 baseline -> base of first_100)
+  - origin/claude/funny-allen-z0iuyw (kurk-s, newest, ~46 commits ahead of main)
+  - origin/kurk-s/mail-topics (mail topic tabs)
+  - local someimprovementsidk (mine; price index from newest message, tab scheduler, browser speed/signing fixes, docs/IMPROVEMENT_PLAN.md)
+  Older/other: site-recon, tanreader-debug, tender_portal, test_brief_reader, integration/next, dev, website-parsing, start_from_beginningiamcooked. Check them only for unique ideas.
+
+METHOD
+  1. Preserve state: do not touch uncommitted work (docs/IMPROVEMENT_PLAN.md is untracked). Use `git worktree add .swarm/wt/<name> <ref>` (git-ignored) for inspection; never edit another agent's worktree. Create first_100 in its own worktree: `git worktree add ../first_100 -b first_100 origin/lean/browse`.
+  2. Weakness list: read lean/browse's run logs in .swarm/runs/ (INDEX.md first, then the *-log.md files; pull missing ones with scripts/pull-run.ps1 only for runs that are mine) and the memory notes (ERP step exhaustion, strict matcher, early COLLECT exit, mail duplicates, log truncation). Compare against the 29 bid rules in the brief. Produce a table: problem | evidence | where it lives | fixed in which branch | status.
+  3. Branch comparison: for each other line, `git log first_100..<branch>` and `git diff first_100...<branch> --stat`, read the diffs, and classify every change: complementary / already in first_100 / duplicates / conflicts (textual or semantic: same function, different assumptions) / dangerous (hardcoded scenario values, fixed click paths, helpers that crawl the sites: these violate fair play and must NOT be ported).
+  4. Port only changes that fix a listed weakness. Prefer cherry-pick of a single commit or a hand-merged hunk; never blind-merge a whole branch; never accept one side automatically; resolve by intent and test results. Where two implementations solve the same problem keep the one that works on first_100 and note why.
+  5. After EACH port: `uv run --no-sync python -m pytest tests -q`, then a local check (`scripts/local-run.ps1 -Only "..." -Name x`, needs `atira models proxy` running) when the change touches site navigation. Before declaring a port good, a sandbox `atira test-run . --follow` must keep quality 100 (compare with lean/browse's run; keep time/cost no worse). If quality drops, revert that port and record it as rejected.
+  6. Fair play check on the final diff vs lean/browse: no scenario values (prices, material numbers, tender refs, TANs, logins) in code/prompts/config, no fixed click paths, model still chooses navigation, max 4 browsers, submit ~1 min before end. Run the repo's contract tests.
+
+CONSTRAINTS
+  - Preserve all existing work and history; no force-push, no deleting branches, no pushing to main (the integrator moves it), no pushing first_100 or running `atira submit` without asking me first.
+  - Do not read or print .env or keys. Commit via PowerShell; end commit messages with the Co-Authored-By line from the session attribution.
+  - Do not claim anything works until the tests/run actually passed; separate passed / failed / not run.
+  - Save every pulled run log/MCP result to .swarm/runs/ and update .swarm/runs/INDEX.md. Never copy values from logs into the package.
+
+DELIVERABLE (final message)
+  1. Weakness table (problem, evidence, fix source).
+  2. Per-branch: what was ported into first_100 (commit hashes), what was rejected and why, what remains unresolved.
+  3. Test results: unit tests, local checks, sandbox test-run id with quality/time/cost vs lean/browse.
+  4. Risks for the private dataset and the smallest next step.
+  5. Exact commands for me to push first_100 and for teammates to adopt it.
+</pasted_content id="21ab">
+
+---
+
+<task-notification>
+<task-id>b7mz0i39s</task-id>
+<tool-use-id>toolu_01Fqv4gD8h2vhPkQ4BJ7DiLZ</tool-use-id>
+<output-file>C:\Users\crubs\AppData\Local\Temp\claude\C--Users-crubs-Desktop-tum-hackathon-ehl-finale-template\93afff97-474c-427d-8ca7-807396b12188\tasks\b7mz0i39s.output</output-file>
+<status>completed</status>
+<summary>Background command "Run unit tests of first_100 on Python 3.12" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Quick addition: we value speed right now with maintaining the quality
+
+---
+
+<task-notification>
+<task-id>bwmu823n4</task-id>
+<tool-use-id>toolu_01SrUnvwTVn5McEy2FD2stYR</tool-use-id>
+<output-file>C:\Users\crubs\AppData\Local\Temp\claude\C--Users-crubs-Desktop-tum-hackathon-ehl-finale-template\93afff97-474c-427d-8ca7-807396b12188\tasks\bwmu823n4.output</output-file>
+<status>failed</status>
+<summary>Background command "Run 3.12 unit tests on all ports" failed with exit code 1</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>brblfxhy0</task-id>
+<summary>Monitor event: "first_100 unit tests (3.12) and baseline run milestones"</summary>
+<event>TESTS: 1 failed, 191 passed in 74.70s (0:01:14)</event>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>brblfxhy0</task-id>
+<summary>Monitor event: "first_100 unit tests (3.12) and baseline run milestones"</summary>
+<event>2026-10-11 05:18:22,096 CollectionCoordinator collect complete; open gaps: []</event>
+</task-notification>
