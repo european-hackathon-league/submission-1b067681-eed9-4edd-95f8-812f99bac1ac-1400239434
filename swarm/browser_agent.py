@@ -48,7 +48,7 @@ from browser_use.browser.session_manager import SessionManager  # noqa: E402
 from browser_use.browser.watchdogs.aboutblank_watchdog import AboutBlankWatchdog  # noqa: E402
 from browser_use.browser.watchdogs.popups_watchdog import PopupsWatchdog  # noqa: E402
 from cdp_use import CDPClient  # noqa: E402
-from pydantic import BaseModel, Field, PrivateAttr  # noqa: E402
+from pydantic import BaseModel, Field, PrivateAttr, model_validator  # noqa: E402
 
 
 async def _no_loading_animation(self, target_id, browser_session_label) -> None:
@@ -155,6 +155,27 @@ class RecordParams(BaseModel):
     data: dict = Field(description="facts exactly as shown on page")
     source: str = Field(default="", description="URL / document / mail subject where read")
     note: str = Field(default="", description="caveats: superseded, withdrawn, other timezone, unsure")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _lenient(cls, value):
+        """A record whose facts came under another key, as a list, or with a non-text note failed validation and cost
+        the agent a step (sandbox: '86 validation errors ... record'); keep the facts instead."""
+        if not isinstance(value, dict):
+            return value
+        out = {k: value[k] for k in ("kind", "data", "source", "note") if k in value}
+        extra = {k: v for k, v in value.items() if k not in out}
+        data = out.get("data")
+        if data is None:
+            data = {}
+        elif not isinstance(data, dict):
+            data = {"value": data}
+        out["data"] = {**extra, **data} if extra else data
+        for key in ("kind", "source", "note"):
+            if key in out and not isinstance(out[key], str):
+                out[key] = json.dumps(out[key], ensure_ascii=False) if out[key] is not None else ""
+        out.setdefault("kind", "fact")
+        return out
 
 
 class ReadParams(BaseModel):

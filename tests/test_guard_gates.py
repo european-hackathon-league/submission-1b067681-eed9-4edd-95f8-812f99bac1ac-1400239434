@@ -3,7 +3,8 @@ unlocked by page order, unrelated checkboxes stay untouched, and a gate fill nev
 import asyncio
 import unittest
 
-from swarm.guard import UNLOCK_ALL_JS, safe_then_click
+from swarm import guard as guard_module
+from swarm.guard import SCAN_JS, UNLOCK_ALL_JS, PopupGuard, safe_then_click
 
 GATE = """<section id="{id}"><label>Zum Entsperren ziehen <input type="range" min="0" max="100" value="0"></label>
 <label><input type="checkbox"> Ich bin kein Roboter</label><p role="status">Gesperrt</p></section>
@@ -43,6 +44,38 @@ class GuardGates(unittest.TestCase):
                             {"label": "Weiter", "away": False, "link": False}]}
         self.assertEqual(safe_then_click({"then_click": "Signatur-TAN · Anforderung 1"}, item), "")
         self.assertEqual(safe_then_click({"then_click": "Weiter"}, item), "Weiter")
+
+
+class LearnedUnlockedStatus(unittest.TestCase):
+    """A gate that keeps its unlocked status but resets the slider (sandbox mail after each search) is not filled again
+    once the guard has seen that status right after its own fill."""
+
+    def test_reset_slider_with_unlocked_status_is_left_alone(self):
+        from playwright.async_api import async_playwright
+
+        async def run():
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                page = await browser.new_page()
+                await page.set_content("<html><body>" + GATE.format(id="list") + "</body></html>")
+                evaluate = lambda js, *a: page.evaluate(js, *a)  # noqa: E731
+                guard = PopupGuard(None, "test")
+                first = await evaluate(SCAN_JS, {"unlocked": guard._unlocked_all()})
+                gate = [i for i in first["items"] if i["kind"] == "gate"][0]
+                await evaluate(UNLOCK_ALL_JS)
+                await guard._learn_unlocked(evaluate, "mail.example", gate)
+                await page.evaluate("document.querySelector('[type=range]').value = 0")   # the site resets it
+                later = await evaluate(SCAN_JS, {"unlocked": guard._unlocked_all()})
+                unknown = await evaluate(SCAN_JS, {"unlocked": []})
+                await browser.close()
+                return gate, later, unknown
+
+        guard_module._UNLOCKED.clear()
+        gate, later, unknown = asyncio.run(run())
+        guard_module._UNLOCKED.clear()
+        self.assertEqual(gate["status"], "Gesperrt")
+        self.assertEqual([i for i in later["items"] if i["kind"] == "gate"], [])
+        self.assertEqual(len([i for i in unknown["items"] if i["kind"] == "gate"]), 1)   # not learned: still a gate
 
 
 if __name__ == "__main__":

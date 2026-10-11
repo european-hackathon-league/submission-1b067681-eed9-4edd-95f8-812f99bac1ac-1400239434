@@ -29,9 +29,11 @@ MAX_ACTIONS_PER_ITEM = 4        # per browse: an item that keeps coming back aft
 CLASSIFY_TIMEOUT_S = 45
 EVAL_TIMEOUT_S = 10            # a page script that does not answer (page frozen by a native dialog) is given up
 
-# Runs in the page: () => {url, items: [{id, kind, text, buttons: [...], fields: [...]}]}. Element references stay in
-# window.__swarmGuard for the click op. Looks into same-origin iframes and open shadow roots.
-SCAN_JS = r"""() => {
+# Runs in the page: ({unlocked}) => {url, items: [{id, kind, text, buttons: [...], fields: [...]}]}. Element references
+# stay in window.__swarmGuard for the click op. Looks into same-origin iframes and open shadow roots. `unlocked`: gate
+# status texts this site showed right after a gate fill (learned in the run): such a gate counts as passed.
+SCAN_JS = r"""(opts) => {
+  const unlocked = (opts && opts.unlocked) || [];
   const norm = s => (s || '').replace(/[​-‍⁠﻿]/g, '').replace(/\s+/g, ' ').trim();
   const docs = [document];
   for (let i = 0; i < docs.length && i < 60; i++) {
@@ -112,11 +114,15 @@ SCAN_JS = r"""() => {
       const max = r.max !== undefined && r.max !== '' ? Number(r.max) : Number(r.getAttribute('aria-valuemax') || 100);
       const value = r.value !== undefined && r.value !== '' ? Number(r.value) : Number(r.getAttribute('aria-valuenow') || 0);
       if (value >= max && checks.every(c => c.checked)) continue;
+      const status = norm([...box.querySelectorAll('[role=status]')].map(st => st.innerText || st.textContent || '').join(' '));
+      if (status && unlocked.includes(status) && checks.every(c => c.checked)) continue;
       const parts = [box.getAttribute('aria-label') || ''];
       for (const f of box.querySelectorAll('input, [role=slider], [role=checkbox]')) if (f.type !== 'hidden') parts.push(fieldLabel(f));
       for (const st of box.querySelectorAll('[role=status], canvas, [role=img][aria-label]')) parts.push('[' + norm(st.getAttribute('aria-label') || st.innerText || '') + ']');
       const whole = norm(box.innerText || '');
+      const before = items.length;
       describe(box, 'gate', whole.length < 500 ? undefined : norm(parts.filter(Boolean).join(' | ')));
+      if (items.length > before) items[before].status = status;
     }
   }
   if (!items.length && !hasInlineGate && document.body) {
@@ -167,6 +173,16 @@ Reply JSON: {"items": [{"id": 0, "kind": "cookie|survey|notice|banner|error|gate
 _DECISIONS: dict[tuple[str, str], dict] = {}     # (site host, item signature) -> cached click/leave decision
 _PENDING: dict[tuple[str, str], bool] = {}         # item kinds the model is classifying right now
 _TASKS: set = set()
+_UNLOCKED: dict[str, list[str]] = {}               # site host -> gate status texts seen right after a gate fill
+# A sandbox mail gate kept "unlocked" in its status but reset the slider to 0 after every search: the guard filled it
+# again on every sweep, and its mouse drags took the focus from the search field the agent was typing into.
+
+GATE_STATUS_JS = r"""({id}) => {
+  const box = (window.__swarmGuard || {refs: []}).refs[id];
+  if (!box) return '';
+  return [...box.querySelectorAll('[role=status]')].map(st => st.innerText || st.textContent || '')
+    .join(' ').replace(/[\u200b-\u200d\u2060\ufeff]/g, '').replace(/\s+/g, ' ').trim();
+}"""
 
 
 def signature(item: dict) -> str:
@@ -325,7 +341,7 @@ class PopupGuard:
                 return 0
         async with self._lock:
             try:
-                scan = await asyncio.wait_for(evaluate(SCAN_JS), EVAL_TIMEOUT_S)
+                scan = await asyncio.wait_for(evaluate(SCAN_JS, {"unlocked": self._unlocked_all()}), EVAL_TIMEOUT_S)
             except Exception:                   # page navigating / closed / frozen by a native dialog
                 return 0
             items = (scan or {}).get("items") or [] if isinstance(scan, dict) else []
@@ -358,6 +374,8 @@ class PopupGuard:
                         result = await asyncio.wait_for(self.fill(evaluate, pairs, then_click, item["id"]),
                                                         3 * EVAL_TIMEOUT_S)
                         label = then_click or "fields"
+                        if decision.get("kind") == "gate":
+                            await self._learn_unlocked(evaluate, site, item)
                 except Exception as error:      # the item went away meanwhile
                     log.debug("guard action failed: %s", error)
                     continue
@@ -367,6 +385,24 @@ class PopupGuard:
                          decision.get("kind"), str(result)[:120].replace("\n", "; "))
                 await asyncio.sleep(0.6)        # let the page react before the agent reads it
             return handled
+
+    @staticmethod
+    def _unlocked_all() -> list[str]:
+        return [text for texts in _UNLOCKED.values() for text in texts]
+
+    async def _learn_unlocked(self, evaluate, site: str, item: dict) -> None:
+        """Remember the gate's status text after a fill when it differs from the locked one it showed before."""
+        try:
+            await asyncio.sleep(0.4)
+            after = await asyncio.wait_for(evaluate(GATE_STATUS_JS, {"id": item["id"]}), EVAL_TIMEOUT_S)
+        except Exception:
+            return
+        before = str(item.get("status") or "")
+        if isinstance(after, str) and after and before and after != before:
+            known = _UNLOCKED.setdefault(site, [])
+            if after not in known and len(known) < 4:
+                known.append(after)
+                log.info("guard %s: gate status after a fill is '%s' (locked: '%s')", site, after[:60], before[:60])
 
     async def loop(self, evaluate, interval: float = GUARD_INTERVAL_S) -> None:
         while True:

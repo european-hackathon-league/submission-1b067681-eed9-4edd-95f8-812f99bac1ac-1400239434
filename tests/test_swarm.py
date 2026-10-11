@@ -242,12 +242,13 @@ class Guard(unittest.IsolatedAsyncioTestCase):
              "fields": []}]}
         clicks = []
 
-        async def evaluate(js, *args):
-            if args:
-                clicks.append(args[0])
-                return "clicked"
-            return scan
         from swarm import guard
+
+        async def evaluate(js, *args):
+            if js == guard.SCAN_JS:
+                return scan
+            clicks.append(args[0])
+            return "clicked"
         a, b = PopupGuard(ctx, "a"), PopupGuard(ctx, "b")
         await asyncio.gather(a.sweep(evaluate), b.sweep(evaluate))   # never waits for the model
         self.assertEqual(clicks, [])
