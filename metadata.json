@@ -1,0 +1,28 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4MPSX1XDN9VC7D8PM93TWEM",
+  "strategy": "manual-commit",
+  "branch": "first_100",
+  "checkpoints_count": 2,
+  "files_touched": [
+    "agents/compute_bid.py",
+    "swarm/orchestrator.py",
+    "tests/test_early_end.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 40,
+    "cache_creation_tokens": 33823,
+    "cache_read_tokens": 4022517,
+    "output_tokens": 10584,
+    "api_call_count": 18
+  }
+}
