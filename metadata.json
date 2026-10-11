@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4MHMZ4V4209H2T6AWBGT8J3",
+  "strategy": "manual-commit",
+  "branch": "claude/funny-allen-z0iuyw",
+  "checkpoints_count": 6,
+  "files_touched": [
+    "docs/PILOT-BUGS.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 38,
+    "cache_creation_tokens": 381274,
+    "cache_read_tokens": 4895528,
+    "output_tokens": 8484,
+    "api_call_count": 16
+  }
+}
