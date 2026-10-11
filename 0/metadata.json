@@ -1,0 +1,49 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4MJPX9C3YJDT0XE7N5X5XKP",
+  "session_id": "fea9f361-d3b5-4e0f-9b78-679b002a856d",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-11T04:14:38.786139Z",
+  "branch": "claude/funny-allen-z0iuyw",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/PILOT-BUGS.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "turn_id": "f59d208f9e30",
+  "checkpoint_transcript_start": 2465,
+  "transcript_lines_at_start": 2465,
+  "compact_transcript_start": 435,
+  "token_usage": {
+    "input_tokens": 0,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 0,
+    "output_tokens": 0,
+    "api_call_count": 0
+  },
+  "session_metrics": {
+    "turn_count": 96
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-11T04:14:38.674527Z",
+    "agent_lines": 227,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 227,
+    "total_lines_changed": 227,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    }
+  ]
+}
