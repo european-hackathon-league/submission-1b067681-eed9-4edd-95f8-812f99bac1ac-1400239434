@@ -12,6 +12,36 @@ ROLES = {
 }
 
 
+CLEF_MIN_P = 0.8
+
+
+async def clef_roles(ctx, sites: list[dict]) -> dict:
+    """Clef picks the site of every role in one call (about a second; the chat model took up to 50 s here and every
+    scraper waits for the roles). Only confident picks are kept; the chat model maps the rest."""
+    import os
+    if not os.environ.get("CLEF_BASE_URL") or not sites:
+        return {}
+    options = {s["siteId"]: str(s.get("url") or s["siteId"]) for s in sites if s.get("siteId")}
+    questions = {role: {"type": "choice", "instructions": f"Which website is {desc}?", "criteria": options}
+                 for role, desc in ROLES.items()}
+    try:
+        import asyncio
+        from swarm import decide
+        answers = await asyncio.wait_for(decide.decide({"sites": sites, "brief": str(ctx.brief)[:6000]}, questions,
+                                                        retries=0), 30)
+    except Exception as error:
+        log.info("clef role mapping unavailable: %s", type(error).__name__)
+        return {}
+    out = {}
+    for role in ROLES:
+        a = answers.get(role) or {}
+        p = float(a.get("confidence", (a.get("probabilities") or {}).get(a.get("choice"), 0)) or 0)
+        if a.get("choice") in options and p >= CLEF_MIN_P:
+            out[role] = a["choice"]
+    log.info("clef role mapping: %s", {r: (answers.get(r) or {}).get("choice") for r in ROLES})
+    return out
+
+
 async def resolve_roles(ctx) -> dict:
     """Map capabilities at runtime; incomplete mappings are retried, observed contradictions can be corrected."""
     async with ctx.lock("sites"):
@@ -21,6 +51,12 @@ async def resolve_roles(ctx) -> dict:
             return known
         sites = [{"siteId": s.get("siteId"), "url": s.get("url")} for s in ctx.task.get("access", [])]
         mapping = dict(known)
+        if not invalid:
+            mapping.update({r: v for r, v in (await clef_roles(ctx, sites)).items() if r not in mapping})
+            if all(role in mapping for role in ROLES):
+                await ctx.board.set("sites", mapping)
+                log.info("site roles (clef): %s", mapping)
+                return mapping
         observations = ctx.shared.setdefault("site_observations", {})
         for attempt in range(3):
             try:
