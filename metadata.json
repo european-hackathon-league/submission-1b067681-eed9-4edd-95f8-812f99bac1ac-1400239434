@@ -1,0 +1,27 @@
+{
+  "cli_version": "0.11.3",
+  "checkpoint_id": "01M4MF0KFGGEK6H0HY3JGB2JDS",
+  "strategy": "manual-commit",
+  "branch": "lean/browse",
+  "checkpoints_count": 9,
+  "files_touched": [
+    "swarm/scraper.py",
+    "tests/test_recovery.py"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": "/0/prompt.txt"
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 74,
+    "cache_creation_tokens": 122234,
+    "cache_read_tokens": 31803491,
+    "output_tokens": 38193,
+    "api_call_count": 36
+  }
+}
