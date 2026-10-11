@@ -206,6 +206,23 @@ def host(url: str) -> str:
 
 NOISE = ("cookie", "survey", "notice", "banner", "error")
 
+# Clef (hosted decision model) classifies items without input fields; below CLEF_MIN_P the chat model decides
+CLEF_ON = bool(os.environ.get("CLEF_BASE_URL")) and os.environ.get("SWARM_GUARD_CLEF", "1") != "0"
+CLEF_MIN_P = float(os.environ.get("SWARM_GUARD_CLEF_MIN_P", "0.8"))
+CLEF_KIND = "What is this element on a business web page, from the point of view of an agent collecting data there?"
+CLEF_KINDS = {
+    "cookie": "cookie or consent banner/wall",
+    "survey": "survey, newsletter, chat or advertising popup",
+    "notice": "maintenance or system notice that only needs acknowledging",
+    "banner": "download bar or info bar that can be closed",
+    "error": "transient error or 'service unavailable' message with a retry",
+    "content": "content the agent works with: login, search, list, record, document viewer, form, wizard, dialog "
+               "asking for a choice, bid/TAN/signing/confirm dialog, navigation or menu",
+}
+CLEF_BUTTON = ("Which button removes this element without changing the page's data or leaving the page: accept "
+               "necessary cookies, close (x) or 'no thanks', or retry for an error. Never a link to another page "
+               "unless it is the retry of an error, never settings, submit, confirm or send.")
+
 
 def pick_button(decision: dict, item: dict) -> int | None:
     """The button to click: the model's choice, unless it is a link to another page (a decoy) and the item has exactly
@@ -314,6 +331,52 @@ class PopupGuard:
         return out
 
     async def _classify(self, site: str, unknown: list[tuple]) -> None:
+        # Clef first for items without input fields (a short choice: what is it, which button); the rest, and every
+        # item Clef is unsure about or cannot answer, goes to the chat model below.
+        rest = []
+        for key, item, decision in await asyncio.gather(*(self._clef(site, key, item) for key, item in unknown)):
+            if decision is None:
+                rest.append((key, item))
+            else:
+                _DECISIONS[key] = decision
+                _PENDING.pop(key, None)
+                log.info("guard %s: %s %s -> %s %s (clef %.2f)", site, item["kind"], item["text"][:80],
+                         decision["action"], decision["kind"], decision["confidence"])
+        if rest:
+            await self._classify_chat(site, rest)
+
+    async def _clef(self, site: str, key, item: dict):
+        """(key, item, decision or None). Clef picks the item's kind and the button a careful person would press."""
+        buttons = item.get("buttons") or []
+        if not CLEF_ON or item.get("fields") or not buttons:
+            return key, item, None
+        options = {str(b["i"]): f"{b['label'][:80]}" + (" (link to another page)" if b.get("away") or b.get("link") else "")
+                   for b in buttons}
+        options["none"] = "no button should be pressed"
+        state = {"site": site, "item": item["kind"], "text": item["text"][:1500]}
+        try:
+            from swarm import decide
+            answers = await asyncio.wait_for(decide.decide(state, {
+                "kind": {"type": "choice", "instructions": CLEF_KIND, "criteria": CLEF_KINDS},
+                "button": {"type": "choice", "instructions": CLEF_BUTTON, "criteria": options}}, retries=0),
+                CLASSIFY_TIMEOUT_S)
+            kind, button = answers["kind"], answers["button"]
+            kind_p = float(kind.get("confidence", (kind.get("probabilities") or {}).get(kind["choice"], 0)))
+            button_p = float(button.get("confidence", (button.get("probabilities") or {}).get(button["choice"], 0)))
+        except Exception as error:               # Clef missing, slow or failing: the chat model decides
+            log.debug("guard clef failed: %s", error)
+            return key, item, None
+        if kind_p < CLEF_MIN_P:
+            return key, item, None
+        if kind["choice"] == "content":
+            return key, item, {"action": "leave", "kind": "content", "confidence": kind_p}
+        if kind["choice"] in NOISE and button["choice"] != "none" and button_p >= CLEF_MIN_P:
+            decision = {"action": "click", "kind": kind["choice"], "button": int(button["choice"]), "confidence": kind_p}
+            if pick_button(decision, item) is not None:
+                return key, item, decision
+        return key, item, None
+
+    async def _classify_chat(self, site: str, unknown: list[tuple]) -> None:
         try:
             shown = [{k: item[k] for k in ("id", "kind", "text", "buttons", "fields")} for _, item in unknown]
             reply = await asyncio.wait_for(
