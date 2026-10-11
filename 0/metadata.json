@@ -1,0 +1,54 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4N38H193ZMWSN4MP9CYF3PY",
+  "session_id": "01a12a1d-8472-7c53-a842-f5325dbb96f9",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-11T09:03:55.1182848Z",
+  "branch": "crubsterino/agent-efficiency-logging",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "scripts/agent_efficiency.py",
+    "swarm/llm.py",
+    "swarm/timeline.py",
+    "tests/test_agent_efficiency.py"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6.1-sol",
+  "turn_id": "8dacc5723466",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 122925,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 3923792,
+    "output_tokens": 28754,
+    "api_call_count": 56,
+    "subagent_tokens_complete": false
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-11T09:03:55.0398426Z",
+    "agent_lines": 637,
+    "agent_removed": 33,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 637,
+    "total_lines_changed": 670,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 354,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".codex/hooks.json": 88,
+        ".serena/.gitignore": 2,
+        ".serena/project.yml": 169,
+        "docs/IMPROVEMENT_PLAN.md": 95
+      }
+    }
+  ]
+}
