@@ -295,12 +295,44 @@ class QwenChat(ChatOpenAI):
                 text = (choice.message.content or "").strip()
                 start, end = text.find("{"), text.rfind("}")
                 if start > 0 and end > start:
-                    choice.message.content = text[start:end + 1]
+                    text = text[start:end + 1]
+                choice.message.content = normalize_actions(text)
             return reply
 
         client.chat.completions.create = create_without_thinking
         client._qwen_patched = True
         return client
+
+
+def normalize_actions(text: str) -> str:
+    """Repair the action list of a model reply before browser-use validates it: a single action object instead of a
+    list, and one object naming several actions (sandbox: {"record": ..., "done": ...} in one object failed every
+    action model, '86 validation errors', and cost the step). Anything else is returned as it came."""
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return text
+    if not isinstance(data, dict) or "action" not in data:
+        return text
+    actions = data["action"]
+    if isinstance(actions, dict):
+        actions = [actions]
+    if not isinstance(actions, list):
+        return text
+    out, changed = [], not isinstance(data["action"], list)
+    for action in actions:
+        if isinstance(action, dict) and len(action) > 1:
+            parts = [{k: v} for k, v in action.items() if k != "done"]
+            if "done" in action:
+                parts.append({"done": action["done"]})
+            out.extend(parts)
+            changed = True
+        else:
+            out.append(action)
+    if not changed:
+        return text
+    data["action"] = out
+    return json.dumps(data, ensure_ascii=False)
 
 
 def make_llm(flash: bool = False) -> ChatOpenAI:
