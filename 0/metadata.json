@@ -1,0 +1,56 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4M591VCTNKJJ7NVP9B8MVAB",
+  "session_id": "2847a9a7-7dc7-4172-887f-dce62bf22534",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-11T00:19:53.6557402Z",
+  "branch": "someimprovementsidk",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "docs/INTEGRATION.md",
+    "docs/SWARM.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "turn_id": "317cf6a77756",
+  "checkpoint_transcript_start": 1592,
+  "transcript_lines_at_start": 1592,
+  "compact_transcript_start": 214,
+  "token_usage": {
+    "input_tokens": 16,
+    "cache_creation_tokens": 11468,
+    "cache_read_tokens": 4810690,
+    "output_tokens": 6034,
+    "api_call_count": 8
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-11T00:19:53.5107277Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 280,
+    "total_committed": 0,
+    "total_lines_changed": 280,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 384,
+      "user_lines_removed": 280,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "docs/IMPROVEMENT_PLAN.md": 95,
+        "docs/INTEGRATION.md": 46,
+        "docs/SWARM.md": 243
+      },
+      "user_removed_per_file": {
+        "docs/INTEGRATION.md": 45,
+        "docs/SWARM.md": 235
+      }
+    }
+  ]
+}
