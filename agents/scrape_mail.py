@@ -125,7 +125,7 @@ class MailScraper(SiteScraper):
     async def lane(self, topics: list[str], facts: dict, tab=None, first=None) -> None:
         """Search `topics` one after another in one tab, skipping those covered by then."""
         _, senders, words = self.topics(facts)
-        queue, retried = list(topics), set()
+        queue, retried, before = list(topics), set(), {}
         while queue:
             topic = queue.pop(0)
             if self.ctx.time_left() <= 60:
@@ -139,14 +139,22 @@ class MailScraper(SiteScraper):
                     job = self.topic_job(topic, words, senders, keys, materials, list(dict.fromkeys(reserve_keys)))
                     if topic in retried:
                         job += ("\nSECOND TRY: the first search saved no readable message for this topic (maybe only "
-                                "the result list). Open each matching message itself and read_page it.")
+                                "the result list). Open each matching message itself and read_page it. The first try "
+                                f"reported: {before.get(topic, '')!r}. If it names a message link or id, read_page "
+                                "that link first.")
                     out = await self.browse_until_done(job, attempts=1, max_steps=12, tab=tab)
                 except Exception as error:      # one failed search must not end the other topics
                     self.ctx.board.error(self.name, f"mail search {topic} failed: {type(error).__name__}: {error}")
                 # The model may call it done with only the result list saved: judge by what the analyst extracted.
                 if topic not in retried and (not out.get("done") or topic not in self.covered(await refresh(self.ctx))):
                     retried.add(topic)
-                    queue.append(topic)         # covered by then (other lane) -> skipped above
+                    before[topic] = str(out.get("summary") or "")[:400]
+                    # Aborted after a step or two (browser trouble, not a real search): try again at once, since the
+                    # lane's first topics matter most. A real attempt that missed goes to the end of the lane.
+                    if (out.get("steps") or 0) < 3:
+                        queue.insert(0, topic)
+                    else:
+                        queue.append(topic)
             if first and topic == topics[0]:
                 await first()
                 first = None
