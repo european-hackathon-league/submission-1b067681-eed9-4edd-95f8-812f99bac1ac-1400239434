@@ -147,7 +147,7 @@ async def extract_new(ctx, wait: bool = True) -> dict:
             await publish(ctx)  # each completed message survives cancellation of a slower sibling
         except Exception as error:
             ctx.board.error("DiscountAnalyzer", f"mail extraction: {type(error).__name__}")
-    tasks = [start_once(ctx, "mail", key, lambda e=e: one(e)) for e in pages(ctx, "mail")
+    tasks = [start_once(ctx, "mail", key, lambda e=e: one(e)) for e in pages(ctx, "mail", site_records=True)
              if (key := (e.data.get("url"), hash(e.data.get("text", "")))) not in cache]
     if wait:
         await settle(tasks)
@@ -216,7 +216,7 @@ class DiscountAnalyzer(Agent):
         await publish(self.ctx)
         seen = -1
         while self.ctx.time_left() > 0:
-            count = len(pages(self.ctx, "mail"))
+            count = len(pages(self.ctx, "mail", site_records=True))
             if count != seen:
                 await refresh(self.ctx, wait=False)       # each page publishes when extracted
                 seen = count

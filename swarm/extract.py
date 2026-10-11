@@ -4,6 +4,7 @@ The scrapers decide which pages matter (`read_page` with a topic -> Evidence kin
 text plus a JSON shape to the model and validate the reply in code. Long texts are split at page boundaries.
 """
 import asyncio
+import json
 import logging
 import re
 
@@ -15,8 +16,9 @@ SYSTEM = ("Extract facts from German business web pages for bid calculation. Cop
 CHUNK = 40_000
 
 
-def pages(ctx, role: str) -> list:
-    """Saved page evidence of a role ('tender', 'spec', 'erp', 'mail'), oldest first, exact duplicates dropped."""
+def pages(ctx, role: str, site_records: bool = False) -> list:
+    """Saved page evidence of a role ('tender', 'spec', 'erp', 'mail'), oldest first, exact duplicates dropped.
+    `site_records`: also every record made on the role's site, whatever its kind."""
     seen, out = set(), []
     for e in ctx.board.query(f"{role}.page"):
         key = (e.data.get("url"), hash(e.data.get("text", "")))
@@ -24,13 +26,26 @@ def pages(ctx, role: str) -> list:
             seen.add(key)
             out.append(e)
     from swarm.blackboard import Evidence
-    for e in ctx.board.query(role + ".", prefix=True):
-        if not e.kind.endswith(".page") and e.data.get("_observed_text"):
-            key = (e.source, hash(e.data["_observed_text"]))
-            if key not in seen:
-                seen.add(key)
-                out.append(Evidence(role + ".page", e.site, {"topic": e.kind, "url": e.source,
-                                  "text": e.data["_observed_text"]}, source=e.source, author=e.author))
+    # records (`record` action): by kind prefix, or made on this role's site under any kind. Their facts go in with
+    # the page text seen at that moment: a sandbox mail scraper recorded the price index rates of a mail whose reading
+    # pane the page text could not show, and the analyst only got the empty page (no rates in the bid).
+    site = (ctx.board.get("sites") or {}).get(role) if site_records else None
+    for e in ctx.board.query("", prefix=True):
+        if e.kind.endswith(".page") or not (e.kind.startswith(role + ".") or (site and e.site == site)):
+            continue
+        facts = {k: v for k, v in (e.data or {}).items() if k != "_observed_text"}
+        observed = e.data.get("_observed_text") or ""
+        if not facts and not observed:
+            continue
+        text = observed
+        if facts:
+            text = (f"[facts recorded by the browsing agent ({e.kind}"
+                    f"{'; note: ' + e.note if e.note else ''}): {json.dumps(facts, ensure_ascii=False)}]\n" + observed)
+        key = (e.source, hash(text))
+        if key not in seen:
+            seen.add(key)
+            out.append(Evidence(role + ".page", e.site, {"topic": e.kind, "url": e.source, "text": text},
+                                source=e.source, author=e.author))
     return out
 
 
