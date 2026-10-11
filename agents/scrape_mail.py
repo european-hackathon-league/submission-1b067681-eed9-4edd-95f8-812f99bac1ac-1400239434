@@ -17,7 +17,7 @@ The signing TAN is NOT read here: the submitter asks for it when it signs (agent
 import os
 import asyncio
 
-from agents.analyze_discount import covered_topics, publish
+from agents.analyze_discount import covered_topics, publish, refresh
 from agents.compute_bid import position_keys
 from swarm.context import SUBMIT_RESERVE_S
 from swarm import Phase, register  # noqa: F401
@@ -136,14 +136,17 @@ class MailScraper(SiteScraper):
                                 if isinstance(r, dict) and r.get("reserve_key")]
                 out = {"done": False}
                 try:
-                    out = await self.browse_until_done(
-                        self.topic_job(topic, words, senders, keys, materials, list(dict.fromkeys(reserve_keys))),
-                        attempts=1, max_steps=12, tab=tab)
+                    job = self.topic_job(topic, words, senders, keys, materials, list(dict.fromkeys(reserve_keys)))
+                    if topic in retried:
+                        job += ("\nSECOND TRY: the first search saved no readable message for this topic (maybe only "
+                                "the result list). Open each matching message itself and read_page it.")
+                    out = await self.browse_until_done(job, attempts=1, max_steps=12, tab=tab)
                 except Exception as error:      # one failed search must not end the other topics
                     self.ctx.board.error(self.name, f"mail search {topic} failed: {type(error).__name__}: {error}")
-                if not out.get("done") and topic not in retried:
+                # The model may call it done with only the result list saved: judge by what the analyst extracted.
+                if topic not in retried and (not out.get("done") or topic not in self.covered(await refresh(self.ctx))):
                     retried.add(topic)
-                    queue.append(topic)         # covered by then (other lane, later extraction) -> skipped above
+                    queue.append(topic)         # covered by then (other lane) -> skipped above
             if first and topic == topics[0]:
                 await first()
                 first = None

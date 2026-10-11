@@ -325,6 +325,26 @@ class MailTopics(unittest.TestCase):
         self.assertIn("delivery_commitments", scraper.covered(valid))
 
 
+class MailIndexGovernance(unittest.TestCase):
+    def test_a_newer_record_without_rates_does_not_hide_the_rates(self):
+        from agents.analyze_discount import summarise
+        from swarm.normalize import to_datetime
+        full = {"topic": "price_indices", "date": "2027-01-20T10:00:00Z",
+                "entries": [{"index": "IX", "eur_per_kg": 2, "valid_from": "01.12.2026", "valid_to": "24.01.2027"},
+                            {"index": "IX", "eur_per_kg": 3, "valid_from": "25.01.2027", "valid_to": None}]}
+        empty = {"topic": "price_indices", "date": "2027-01-21T10:00:00Z", "entries": []}
+        mail = summarise([full, empty], to_datetime("2027-01-25T09:00:00Z"))
+        self.assertEqual(mail["price_indices"], {"IX": "3"})
+
+    def test_rejection_names_the_reason(self):
+        from agents.analyze_discount import rejection
+        from swarm.normalize import to_datetime
+        m = {"topic": "packaging_tariffs", "sender": "log@x.example", "reference": "R-1", "date": "2027-01-26"}
+        args = ("R-1", to_datetime("2027-01-25T09:00:00Z"), {"packaging_tariffs": "log@"}, "x.example")
+        self.assertEqual(rejection(m, *args), "after scenario date")
+        self.assertEqual(rejection(m | {"reference": "R-1-A"}, *args), "reference")
+        self.assertIsNone(rejection(m | {"date": "2027-01-24"}, *args))
+
 class CoordinatorFallback(unittest.TestCase):
     def test_direct_jobs_group_three_gaps_per_job_and_role(self):
         from agents.coordinate import direct_jobs
