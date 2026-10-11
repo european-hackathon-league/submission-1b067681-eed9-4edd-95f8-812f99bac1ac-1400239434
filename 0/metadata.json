@@ -1,0 +1,71 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4N39ZPGJ89DD2JCZQ3KPRKG",
+  "session_id": "01a12a1d-8472-7c53-a842-f5325dbb96f9",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-11T09:04:40.2718727Z",
+  "branch": "crubsterino/shared-site-memory",
+  "checkpoints_count": 1,
+  "files_touched": [
+    "agents/compute_bid.py",
+    "agents/coordinate.py",
+    "agents/scrape_erp.py",
+    "agents/scrape_mail.py",
+    "docs/SHARED-MEMORY.md",
+    "docs/SWARM.md",
+    "scripts/agent_efficiency.py",
+    "swarm/blackboard.py",
+    "swarm/browser_agent.py",
+    "swarm/llm.py",
+    "swarm/orchestrator.py",
+    "swarm/scheduler.py",
+    "swarm/scraper.py",
+    "swarm/site_memory.py",
+    "swarm/timeline.py",
+    "tests/test_agent_efficiency.py",
+    "tests/test_browser_metrics.py",
+    "tests/test_contracts.py",
+    "tests/test_scheduler.py",
+    "tests/test_site_memory.py"
+  ],
+  "agent": "Codex",
+  "model": "gpt-6.1-sol",
+  "turn_id": "8dacc5723466",
+  "checkpoint_transcript_start": 429,
+  "transcript_lines_at_start": 429,
+  "compact_transcript_start": 45,
+  "token_usage": {
+    "input_tokens": 1818,
+    "cache_creation_tokens": 0,
+    "cache_read_tokens": 149081,
+    "output_tokens": 748,
+    "api_call_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-11T09:04:40.2112819Z",
+    "agent_lines": 1883,
+    "agent_removed": 667,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 1883,
+    "total_lines_changed": 2550,
+    "agent_percentage": 100,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 354,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        ".codex/hooks.json": 88,
+        ".serena/.gitignore": 2,
+        ".serena/project.yml": 169,
+        "docs/IMPROVEMENT_PLAN.md": 95
+      }
+    }
+  ]
+}
