@@ -50,7 +50,8 @@ HINTS = ("Adapt to the observed software; these are possible patterns, not requi
          "scales; stock per plant and per storage location); status codes explained in legend or tooltip; short session "
          "timeout - log in again when login page appears. Save steps: once you see the links of a record's "
          "tabs/registers, read all with ONE read_page(urls=[...]) using each link's exact href as shown on the page "
-         "(never guess, translate or shorten URL parameters: guessed tab URLs return 404); transactions often take the material number "
+         "as listed in read_page's text (never guess, translate or shorten URL parameters: guessed tab URLs return 404; "
+         "find_elements does not show hrefs); transactions often take the material number "
          "directly in their entry field.")
 
 FOLLOWUP, FINISH, SEARCH, BEST_RECORD, RECORD, SPECULATIVE, COVERED = 0, 1, 2, 2, 3, 4, 6
@@ -95,8 +96,10 @@ def material_goal(job: str, material: str, item: dict, missing: str = "") -> str
     if job == "record":
         return (f"{find}\nread_page EVERY tab/register of its record (basic data, technical data, planning/status with "
                 f"lead times and status; status legend or tooltip too) with topic 'erp material {material}', in one "
-                f"read_page(urls=[...]) with the tab links' exact hrefs (find_elements shows them; never guess them) when the "
-                f"tabs are links. done with status and lead times.{focus}")
+                f"read_page(urls=[...]) when the tabs are links: read_page the open record first (its text lists each tab "
+                f"link's href), then the other tabs by exactly those hrefs; never guess URLs, and don't use find_elements "
+                f"for hrefs (it does not show them). Or click each tab and read_page it. done with status and lead "
+                f"times.{focus}")
     if job == "prices":
         return (f"Price conditions of material {material}{group}: open the price condition display transaction for "
                 f"it, open its quantity-scale register so every scale row shows, read_page with topic 'erp prices "
