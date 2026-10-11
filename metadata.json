@@ -1,0 +1,26 @@
+{
+  "cli_version": "0.11.4",
+  "checkpoint_id": "01M4MW3NKKX56KZQYM12FGYYRX",
+  "strategy": "manual-commit",
+  "branch": "claude/funny-allen-z0iuyw",
+  "checkpoints_count": 13,
+  "files_touched": [
+    "docs/BROWSE-BUGS.md"
+  ],
+  "sessions": [
+    {
+      "metadata": "/0/metadata.json",
+      "transcript": "/0/full.jsonl",
+      "compact_transcript": "/0/transcript.jsonl",
+      "content_hash": "/0/content_hash.txt",
+      "prompt": ""
+    }
+  ],
+  "token_usage": {
+    "input_tokens": 10,
+    "cache_creation_tokens": 21193,
+    "cache_read_tokens": 604284,
+    "output_tokens": 5523,
+    "api_call_count": 5
+  }
+}
